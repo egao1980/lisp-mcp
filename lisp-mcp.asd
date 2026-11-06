@@ -4,7 +4,7 @@
   :author "egao1980"
   :license "MIT"
   :depends-on ("alexandria" "bordeaux-threads" "lisp-source-protocol" "repl-protocol" "repl-backend-swank" "repl-backend-slynk"
-               "process-backend-uiop" "mcp-protocol" "mcp-backend-stdio")
+               "process-backend-uiop" (:version "mcp-protocol" "0.2.1") "mcp-backend-stdio")
   :serial t
   :pathname "src"
   :components ((:file "package")
