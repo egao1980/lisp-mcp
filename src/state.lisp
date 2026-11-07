@@ -29,6 +29,11 @@
          :documentation "Directory pathname every tool path is resolved against.")
    (connections :initform (make-hash-table :test #'equal) :reader state-connections)
    (default :initform nil :accessor state-default-connection)
+   (channels :initform (make-hash-table :test #'equal) :reader state-channels
+             :documentation "Channel name → REPL-CHANNEL.")
+   (image-indentation :initform '() :accessor state-image-indentation
+                      :documentation "(name . spec) hints sent by connected images.")
+   (source-cache :initform nil :accessor state-source-cache)
    (lock :initform (bt2:make-lock :name "lisp-mcp state") :reader state-lock)))
 
 (defvar *state* nil "The LISP-MCP-STATE of the running server.")
@@ -81,13 +86,21 @@ symlink cannot point outside the root."
 ;;; Connections
 
 (defun add-connection (name conn &key (state *state*))
+  "Register CONN as NAME (now the default) and route its events to the client."
   (bt2:with-lock-held ((state-lock state))
     (setf (gethash name (state-connections state)) conn
           (state-default-connection state) name))
+  (watch-connection name conn)
   conn)
 
 (defun remove-connection (name &key (state *state*))
   (bt2:with-lock-held ((state-lock state))
+    (let ((conn (gethash name (state-connections state))))
+      ;; channels die with their connection
+      (loop for channel-name in (loop for k being the hash-keys of (state-channels state)
+                                        using (hash-value ch)
+                                      when (eq (repl:repl-channel-connection ch) conn) collect k)
+            do (remhash channel-name (state-channels state))))
     (remhash name (state-connections state))
     (when (equal (state-default-connection state) name)
       (setf (state-default-connection state)
@@ -100,6 +113,16 @@ symlink cannot point outside the root."
       (cond ((null name) (error 'no-connection))
             ((gethash name (state-connections state)))
             (t (error 'unknown-connection :name name))))))
+
+(defun find-channel (name &key (state *state*))
+  (bt2:with-lock-held ((state-lock state))
+    (or (gethash name (state-channels state))
+        (error 'bad-argument :message (format nil "No channel named ~S; use repl-channel-open" name)))))
+
+(defun fresh-channel-name (&key (state *state*))
+  (loop for i from 1
+        for name = (format nil "channel-~D" i)
+        unless (gethash name (state-channels state)) return name))
 
 (defun fresh-connection-name (prefix &key (state *state*))
   (loop for i from 1

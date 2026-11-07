@@ -2,6 +2,8 @@
   (:use #:cl #:rove)
   (:local-nicknames (#:mcp #:mcp-protocol)))
 
+;;; rpc-protocol and sse-protocol come with lisp-mcp/http; the tests use them by name.
+
 (in-package #:lisp-mcp/tests)
 
 (defvar *server* nil)

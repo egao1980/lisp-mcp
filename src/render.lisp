@@ -34,18 +34,23 @@
             (when imbalances
               (format s "Use edit-repair to apply a suggested fix; forms marked recovered refuse other edits.~%")))))))
 
-(defun render-outline (parsed name)
+(defun render-outline (parsed name &key marks)
+  "Outline text. MARKS, when given, has one entry per outline entry: T (the
+image defines it), NIL (it does not) or :UNKNOWN."
   (with-text (s)
     (format s "~A (hash ~A, ~D forms~:[~;, has reader problems~])~%" name (src:parsed-source-hash parsed)
             (length (src:parsed-source-forms parsed)) (not (src:parsed-source-clean-p parsed)))
-    (dolist (e (src:outline parsed))
-      (let ((node (src:outline-entry-node e)))
-        (format s "  ~5@A  ~A ~A~@[ ~A~]  [~A]~@[ ~S~]~%"
+    (loop for e in (src:outline parsed)
+          for i from 0
+          for mark = (and marks (nth i marks))
+          do (let ((node (src:outline-entry-node e)))
+        (format s "  ~5@A  ~A ~A~@[ ~A~]  [~A]~@[ ~S~]~@[ ~A~]~%"
                 (format nil "L~A" (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node)))
                 (src:outline-entry-kind e) (string-downcase (src:outline-entry-name e))
                 (src:outline-entry-lambda-list e) (path-string node)
                 (let ((doc (src:outline-entry-docstring e)))
-                  (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc)))))))))))
+                  (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc))))))
+                (and marks (case mark ((t) "[image: defined]") ((nil) "[image: not loaded]") (t nil))))))))
 
 (defun render-node (parsed name node)
   (multiple-value-bind (l1) (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node))
@@ -86,9 +91,13 @@
         (t (with-text (s)
              (let ((out (repl:eval-result-output result)))
                (when (plusp (length out)) (format s "Output:~%~A~&" out)))
-             (if (repl:eval-result-values result)
-                 (format s "=> ~{~A~^~%=> ~}~%" (repl:eval-result-values result))
-                 (format s "; No values~%"))
+             (cond ((and (repl:eval-result-values result) (repl:eval-result-entry result))
+                    (loop for v in (repl:eval-result-values result)
+                          for i from 0
+                          do (format s "=> ~A   #v~D:~D~%" v (repl:eval-result-entry result) i)))
+                   ((repl:eval-result-values result)
+                    (format s "=> ~{~A~^~%=> ~}~%" (repl:eval-result-values result)))
+                   (t (format s "; No values~%")))
              (when (repl:eval-result-id result)
                (format s "(result id ~A; inspect it with inspect {\"result\": ~A})~%"
                        (repl:eval-result-id result) (repl:eval-result-id result)))))))
@@ -111,7 +120,7 @@
         (t (let ((file (repl:source-location-file loc))
                  (pos (repl:source-location-position loc)))
              (if (and file pos (probe-file file))
-                 (let* ((parsed (src:read-source-file file)))
+                 (let* ((parsed (cached-source file)))
                    (format nil "~A:~A" (relative-name file)
                            (position-string parsed (min pos (max 0 (1- (length (src:source-string (src:parsed-source-text parsed)))))))))
                  (format nil "~A~@[ @~D~]" file pos))))))
@@ -120,8 +129,8 @@
   (if (typep result 'repl:debugger-state)
       (render-debugger result)
       (with-text (s)
-        (format s "~A ~:[FAILED~;ok~] (~D note~:P)~%" label (repl:compile-result-success-p result)
-                (length (repl:compile-result-notes result)))
+        (format s "~A ~:[FAILED~;ok~] (~D note~:P)~:[~;, loaded~]~%" label (repl:compile-result-success-p result)
+                (length (repl:compile-result-notes result)) (repl:compile-result-loaded-p result))
         (dolist (n (repl:compile-result-notes result))
           (format s "  ~(~A~) at ~A: ~A~%" (repl:compiler-note-severity n)
                   (render-location (repl:compiler-note-location n))

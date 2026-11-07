@@ -7,17 +7,25 @@
   '("expected_hash" "string" "File hash from source-read/source-outline; the edit is refused if the file changed since"))
 (defparameter +dry-run+ '("dry_run" "boolean" "Show the diff without writing"))
 
-(defun commit (plan args name)
-  (render-edit-result (src:commit-plan plan :dry-run (arg-bool args "dry_run")
-                                            :expected-hash (arg-string args "expected_hash"))
-                      name))
+(defun commit (plan args name &key (hash-arg "expected_hash"))
+  (let ((path (src:parsed-source-path (src:edit-plan-parsed plan))))
+    (prog1 (render-edit-result (src:commit-plan plan :dry-run (arg-bool args "dry_run")
+                                                     :expected-hash (arg-string args hash-arg))
+                               name)
+      ;; the write may land in the same second with the same length
+      (forget-source path))))
+
+(defun indented-for-project (function)
+  "Call FUNCTION with indentation prepared from the image and project macros."
+  (prepare-indentation (project-sources :progress-message "Reading"))
+  (funcall function))
 
 (defmacro define-node-edit (tool-name description (parsed node args) extra-schema &body plan-form)
   `(define-tool ,tool-name (,args :description ,description :kind :write)
        (input-schema +path+ +locator+ ,@extra-schema +expected-hash+ +dry-run+)
      (multiple-value-bind (,parsed name) (read-project-file (require-arg ,args "path"))
        (let ((,node (locate-in ,parsed (require-arg ,args "locator"))))
-         (commit (progn ,@plan-form) ,args name)))))
+         (commit (indented-for-project (lambda () ,@plan-form)) ,args name)))))
 
 (define-node-edit "edit-replace"
     "Replace one form with new code. The code must read as exactly one balanced form; continuation lines are re-indented to the form's column."
@@ -60,6 +68,37 @@
 (define-node-edit "edit-transpose" "Swap a form with its next sibling." (parsed node args) ()
   (src:transpose-nodes parsed node))
 
+(define-tool "edit-move"
+    (args :description "Move a form before or after another form, in the same file or another one (target_path). Both files are verified before either is written."
+          :kind :write)
+    (input-schema +path+ +locator+
+                  '("target_locator" "string" "Form to move next to (same syntax as locator)" :required t)
+                  '("target_path" "string" "File of the target (default: path)")
+                  '("where" "string" "after (default) or before" :enum ("after" "before"))
+                  +expected-hash+
+                  '("target_expected_hash" "string" "Hash of the target file, when it is another file")
+                  +dry-run+)
+  (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
+    (multiple-value-bind (target-parsed target-name)
+        (let ((tp (arg-string args "target_path")))
+          (if (and tp (not (equal (namestring (resolve-project-path tp))
+                                  (namestring (src:parsed-source-path parsed)))))
+              (read-project-file tp)
+              (values parsed name)))
+      (let* ((node (locate-in parsed (require-arg args "locator")))
+             (target (locate-in target-parsed (require-arg args "target_locator")))
+             (plans (indented-for-project
+                     (lambda ()
+                       (src:move-node parsed node target-parsed target
+                                      :where (if (string-equal (arg-string args "where" "after") "before")
+                                                 :before :after))))))
+        ;; verify everything before writing anything
+        (mapc #'src:verify-plan plans)
+        (with-text (s)
+          (write-string (commit (first plans) args name) s)
+          (when (second plans)
+            (write-string (commit (second plans) args target-name :hash-arg "target_expected_hash") s)))))))
+
 (define-tool "edit-repair"
     (args :description "Apply the suggested fix of a paren imbalance reported by source-check (insert missing closers, delete an early/stray one, close a string). Accepted only if the problem count drops."
           :kind :write)
@@ -82,7 +121,7 @@
                         (let ((file (namestring (resolve-project-path p))))
                           (remove file all :key #'src:parsed-source-path :test-not #'string=))
                         all)))
-           (model (src:build-package-model all))
+           (model (project-model all))
            (plans (src:rename-symbol model package name (require-arg args "new_name") :sources scope)))
       (if (null plans)
           (format nil "No references to ~A::~A~%" package name)
@@ -115,4 +154,5 @@
       (write-string code out)
       (when (and (plusp (length code)) (char/= (char code (1- (length code))) #\Newline))
         (terpri out)))
+    (forget-source file)
     (format nil "Created ~A~%" (relative-name file))))
