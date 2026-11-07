@@ -86,3 +86,53 @@
   (ok (equal (lisp-mcp:parse-locator "defmethod print-object (my-class t)")
              '(:definition "defmethod" "print-object" "(my-class t)")))
   (ok (signals (lisp-mcp:parse-locator "nonsense") 'error)))
+
+(deftest move-and-reindent
+  (with-project (root)
+    (write-project-file root "src/demo.lisp" *demo*)
+    (write-project-file root "src/other.lisp" (format nil "(in-package #:demo)~%~%(defun z () 0)~%"))
+    ;; within a file
+    (call "edit-move" "path" "src/demo.lisp" "locator" "defun caller" "target_locator" "defun frob" "where" "before")
+    (let ((text (uiop:read-file-string (merge-pathnames "src/demo.lisp" root))))
+      (ok (< (search "(defun caller" text) (search "(defun frob" text))))
+    ;; across files: both are written, and both stay clean
+    (call "edit-move" "path" "src/demo.lisp" "locator" "defun caller" "target_path" "src/other.lisp"
+          "target_locator" "defun z")
+    (ok (not (search "defun caller" (uiop:read-file-string (merge-pathnames "src/demo.lisp" root)))))
+    (ok (search (format nil "(defun z () 0)~%~%(defun caller () (frob 2))")
+                (uiop:read-file-string (merge-pathnames "src/other.lisp" root))))
+    (ok (search "clean" (call "source-check" "path" "src/other.lisp" "rules" "none")))
+    ;; replaced code is re-indented
+    (call "edit-replace" "path" "src/other.lisp" "locator" "defun z"
+          "code" (format nil "(defun z ()~%(let ((a 1))~%(+ a~%1)))"))
+    (ok (search (format nil "(defun z ()~%  (let ((a 1))~%    (+ a~%       1)))")
+                (uiop:read-file-string (merge-pathnames "src/other.lisp" root))))))
+
+(deftest project-macros-drive-indentation
+  (with-project (root)
+    (write-project-file root "src/macros.lisp"
+                        (format nil "(in-package #:cl-user)~%~%(defmacro with-widget ((var) &body body) `(let ((,var 1)) ,@body))~%~%(defmacro define-thing2 (name kind spec &body body) (list name kind spec body))~%~%(defun use () nil)~%"))
+    (call "edit-replace" "path" "src/macros.lisp" "locator" "defun use"
+          "code" (format nil "(defun use ()~%(define-thing2 a b c~%(body)))"))
+    (ok (search (format nil "(define-thing2 a b c~%    (body))")
+                (uiop:read-file-string (merge-pathnames "src/macros.lisp" root))))))
+
+(deftest packages-tool
+  (with-project (root)
+    (write-project-file root "src/demo.lisp" *demo*)
+    (write-project-file root "src/pkg.lisp"
+                        "(uiop:define-package #:demo.util (:use #:cl) (:nicknames #:du) (:local-nicknames (#:a #:alexandria)) (:export #:x #:y))")
+    (let ((text (call "source-packages")))
+      (ok (search "DEMO  src/demo.lisp:1:" text))
+      (ok (search "DEMO.UTIL (nicknames DU)" text))
+      (ok (search "2 exports" text))
+      (ok (search "A=ALEXANDRIA" text))
+      (ok (search "src/pkg.lisp:1:" text)))))
+
+(deftest cache-sees-external-changes
+  (with-project (root)
+    (write-project-file root "a.lisp" "(defun one () 1)")
+    (ok (search "defun one" (call "source-outline" "path" "a.lisp")))
+    ;; a write from outside this server, same second, different length
+    (write-project-file root "a.lisp" "(defun one () 1) (defun two () 2)")
+    (ok (search "defun two" (call "source-outline" "path" "a.lisp")))))

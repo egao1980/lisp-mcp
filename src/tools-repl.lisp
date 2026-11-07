@@ -78,11 +78,47 @@
 ;;; Evaluation
 
 (define-tool "repl-eval"
-    (args :description "Evaluate code in the image. Returns printed values and output, or the debugger state (condition, restarts, backtrace) if it signals; then use debug-* tools."
+    (args :description "Evaluate code in the image. Returns printed values and output, or the debugger state (condition, restarts, backtrace) if it signals; then use debug-* tools. With channel (from repl-channel-open), it runs in that REPL: its own thread, package and #v<entry>:<index> value history."
           :kind :write)
-    (input-schema +code+ +package+ +connection+ '("timeout" "integer" "Seconds to wait (default 60)"))
-  (render-eval (repl:repl-eval (conn args) (require-arg args "code")
-                               :package (arg-string args "package") :timeout (timeout args))))
+    (input-schema +code+ +package+ +connection+ '("timeout" "integer" "Seconds to wait (default 60)")
+                  '("channel" "string" "Channel name from repl-channel-open (Slynk)"))
+  (let ((channel (arg-string args "channel")))
+    (if channel
+        (render-eval (repl:repl-channel-eval (find-channel channel) (require-arg args "code")
+                                             :timeout (timeout args)))
+        (render-eval (repl:repl-eval (conn args) (require-arg args "code")
+                                     :package (arg-string args "package") :timeout (timeout args))))))
+
+(define-tool "repl-channel-open"
+    (args :description "Open a separate REPL in the image (Slynk mrepl): its own thread, package and value history. Pass its name as channel to repl-eval; results show #v<entry>:<index> references usable in later code."
+          :kind :write)
+    (input-schema +connection+ '("package" "string" "Initial package") '("name" "string" "Channel name"))
+  (let* ((c (conn args))
+         (channel (handler-case (repl:repl-open-channel c :package (arg-string args "package"))
+                    (repl:repl-not-supported ()
+                      (error 'bad-argument :message "This connection has no channels; spawn or connect with backend slynk"))))
+         (name (or (arg-string args "name") (fresh-channel-name))))
+    (bt2:with-lock-held ((state-lock *state*))
+      (setf (gethash name (state-channels *state*)) channel))
+    (format nil "Channel ~A open (package ~A)~%" name (repl:repl-channel-package channel))))
+
+(define-tool "repl-channel-close" (args :description "Close a channel opened with repl-channel-open." :kind :write)
+    (input-schema '("channel" "string" "Channel name" :required t))
+  (let* ((name (require-arg args "channel"))
+         (channel (find-channel name)))
+    (repl:repl-close-channel channel)
+    (bt2:with-lock-held ((state-lock *state*))
+      (remhash name (state-channels *state*)))
+    (format nil "Closed ~A~%" name)))
+
+(define-tool "repl-channel-list" (args :description "Open channels and their packages.") (input-schema)
+  (with-text (s)
+    (if (zerop (hash-table-count (state-channels *state*)))
+        (format s "No channels~%")
+        (maphash (lambda (name ch)
+                   (format s "~A: package ~A~:[~; (closed)~]~%" name (repl:repl-channel-package ch)
+                           (repl:repl-channel-closed-p ch)))
+                 (state-channels *state*)))))
 
 (define-tool "repl-compile"
     (args :description "Compile in the image. With a locator: that form, with compiler notes mapped to file positions. Without: compile-file and load the whole file."
@@ -98,20 +134,29 @@
                                                       :filename (namestring (src:parsed-source-path parsed))
                                                       :position (src:node-start node))
                             :label (format nil "~A ~A" name (path-string node))))
-          (render-compile (repl:repl-compile-file c (src:parsed-source-path parsed) :load t)
-                          :label name)))))
+          (progn
+            (progress 0 1 "Compiling ~A" name)
+            (prog1 (render-compile (repl:repl-compile-file c (src:parsed-source-path parsed) :load t)
+                                   :label name)
+              (progress 1 1 "Compiled ~A" name)))))))
 
 (define-tool "repl-load-system"
     (args :description "asdf:load-system in the image." :kind :write)
     (input-schema '("system" "string" "ASDF system name" :required t) +connection+ '("timeout" "integer" "Seconds (default 300)"))
-  (let ((repl:*repl-timeout* (or (arg-int args "timeout") 300)))
-    (render-eval (repl:repl-load-system (conn args) (require-arg args "system")))))
+  (let ((repl:*repl-timeout* (or (arg-int args "timeout") 300))
+        (system (require-arg args "system")))
+    (progress 0 1 "Loading ~A" system)
+    (prog1 (render-eval (repl:repl-load-system (conn args) system))
+      (progress 1 1 "Loaded ~A" system))))
 
 (define-tool "repl-run-tests"
     (args :description "asdf:test-system in the image; returns output and result (or the debugger)." :kind :write)
     (input-schema '("system" "string" "ASDF system name" :required t) +connection+ '("timeout" "integer" "Seconds (default 600)"))
-  (render-eval (repl:repl-eval (conn args) (format nil "(asdf:test-system ~S)" (require-arg args "system"))
-                               :timeout (or (arg-int args "timeout") 600))))
+  (let ((system (require-arg args "system")))
+    (progress 0 1 "Testing ~A" system)
+    (prog1 (render-eval (repl:repl-eval (conn args) (format nil "(asdf:test-system ~S)" system)
+                                        :timeout (or (arg-int args "timeout") 600)))
+      (progress 1 1 "Tested ~A" system))))
 
 (define-tool "repl-interrupt" (args :description "Interrupt the running evaluation (it enters the debugger)." :kind :write)
     (input-schema +connection+)
@@ -205,7 +250,28 @@
     (args :description "Invoke a restart by index; returns how the interrupted evaluation finished (values, abort, or a new debugger level)."
           :kind :write)
     (input-schema '("restart" "integer" "Restart index" :required t) +connection+)
-  (render-eval (repl:repl-invoke-restart (conn args) (arg-int args "restart"))))
+  (handler-case (render-eval (repl:repl-invoke-restart (conn args) (arg-int args "restart")))
+    (repl:repl-invalid-restart (e)
+      (error 'bad-argument :message (princ-to-string e)))))
+
+(define-tool "debug-step"
+    (args :description "Stepper: continue from a frame stepping into calls (into), over them (next) or out of the frame (out). Enter the stepper with (step form) on code compiled with (debug 3). Returns the next stop or the final result."
+          :kind :write)
+    (input-schema '("frame" "integer" "Frame index (default 0)")
+                  '("mode" "string" "into (default), next or out" :enum ("into" "next" "out")) +connection+)
+  (render-eval (repl:repl-step (conn args) (arg-int args "frame" 0)
+                               :mode (let ((m (arg-string args "mode" "into")))
+                                       (cond ((string-equal m "next") :next)
+                                             ((string-equal m "out") :out)
+                                             (t :into))))))
+
+(define-tool "inspect-history"
+    (args :description "Inspect value index (default 0) of history entry in a channel (the #v<entry>:<index> shown by repl-eval with channel)."
+          :kind :write)
+    (input-schema '("channel" "string" "Channel name" :required t) '("entry" "integer" "History entry" :required t)
+                  '("index" "integer" "Value index (default 0)"))
+  (render-inspector (repl:repl-channel-inspect (find-channel (require-arg args "channel"))
+                                               (arg-int args "entry") (arg-int args "index" 0))))
 
 (define-tool "debug-return-from-frame" (args :description "Return a value (code) from a frame." :kind :write)
     (input-schema '("frame" "integer" "Frame index" :required t) +code+ +connection+)
