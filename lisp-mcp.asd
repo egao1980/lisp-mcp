@@ -5,7 +5,7 @@
   :license "MIT"
   :depends-on ("alexandria" "bordeaux-threads"
                (:version "lisp-source-protocol" "0.2.0")
-               (:version "repl-protocol" "0.2.0")
+               (:version "repl-protocol" "0.2.2")
                (:version "repl-backend-swank" "0.2.0")
                (:version "repl-backend-slynk" "0.2.0")
                "process-backend-uiop"
