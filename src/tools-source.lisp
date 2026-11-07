@@ -69,8 +69,7 @@ used, so nothing is interned."
                              collect (case (first p)
                                        (:package (format nil "(cl:if (cl:find-package ~S) 1 0)" (second p)))
                                        (:symbol
-                                        (format nil "(cl:let* ((p (cl:find-package ~S)) (s (cl:and p (cl:find-symbol ~S p)))) ~
-                                                      (cl:if (cl:and s (cl:or (cl:fboundp s) (cl:boundp s) (cl:find-class s cl:nil))) 1 0))"
+                                        (format nil "(cl:let* ((p (cl:find-package ~S)) (s (cl:and p (cl:find-symbol ~S p)))) (cl:if (cl:and s (cl:or (cl:fboundp s) (cl:boundp s) (cl:find-class s cl:nil))) 1 0))"
                                                 (third p) (second p)))
                                        (t "2")))))
          (result (repl:repl-eval conn form)))
