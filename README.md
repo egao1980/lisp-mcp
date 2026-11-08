@@ -23,7 +23,7 @@ You can set the root with `--root` or `MCP_PROJECT_ROOT`. Every path is resolved
 Claude Code:
 
 ```bash
-claude mcp add lisp-mcp -- ros -Q -- /path/to/lisp-mcp/roswell/lisp-mcp.ros --root "$PWD"
+claude mcp add lisp-mcp -- ros +Q -- /path/to/lisp-mcp/roswell/lisp-mcp.ros --root "$PWD"
 ```
 
 `.mcp.json`:
