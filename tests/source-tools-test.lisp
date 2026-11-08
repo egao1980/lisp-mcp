@@ -54,6 +54,10 @@
     (let ((dry (call "edit-replace" "path" "src/demo.lisp" "locator" "defun caller"
                      "code" "(defun caller () (frob 3))" "dry_run" t)))
       (ok (search "Dry run" dry))
+      ;; the operation and a real hash, not the path and the operation name
+      (ok (search ": replace; new file hash " dry))
+      (let ((at (+ (search "new file hash " dry) (length "new file hash "))))
+        (ok (every (lambda (c) (digit-char-p c 16)) (subseq dry at (+ at 16)))))
       (ok (search "+(defun caller () (frob 3))" dry)))
     (ok (search "(frob 2)" (uiop:read-file-string (merge-pathnames "src/demo.lisp" root))))
     (multiple-value-bind (text error)
@@ -77,7 +81,7 @@
 (deftest static-references
   (with-project (root)
     (write-project-file root "src/demo.lisp" *demo*)
-    (ok (search "3 references to DEMO::FROB" (call "source-find-references" "symbol" "demo:frob")))
+    (ok (search "3 references to DEMO:FROB" (call "source-find-references" "symbol" "demo:frob")))
     (ok (search "defun FROB" (call "source-find-definitions" "symbol" "frob" "package" "demo")))))
 
 (deftest locator-syntax

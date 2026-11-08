@@ -62,7 +62,7 @@ image defines it), NIL (it does not) or :UNKNOWN."
 
 (defun render-edit-result (result name)
   (with-text (s)
-    (format s "~:[Dry run, nothing written~;Wrote ~A~]: ~(~A~); new file hash ~A~%"
+    (format s "~:[Dry run, nothing written~*~;Wrote ~A~]: ~(~A~); new file hash ~A~%"
             (src:edit-result-written-p result) name
             (src:edit-plan-operation (src:edit-result-plan result))
             (src:parsed-source-hash (src:edit-result-parsed result)))
@@ -84,12 +84,45 @@ image defines it), NIL (it does not) or :UNKNOWN."
       (format s "  ~D: ~A~%" (repl:frame-info-index f) (repl:frame-info-description f)))
     (format s "Next: debug-invoke-restart, debug-frame-locals, debug-eval-in-frame, inspect-condition.~%")))
 
-(defun render-eval (result)
+(defun strip-ansi (text)
+  "TEXT without ANSI CSI escape sequences (Rove colours its report)."
+  (with-output-to-string (out)
+    (let ((i 0) (n (length text)))
+      (loop while (< i n)
+            do (let ((c (char text i)))
+                 (if (and (char= c (code-char 27)) (< (1+ i) n) (char= (char text (1+ i)) #\[))
+                     (progn (incf i 2)
+                            (loop while (and (< i n) (not (alpha-char-p (char text i)))) do (incf i))
+                            (incf i))
+                     (progn (write-char c out) (incf i))))))))
+
+(defparameter *build-noise-prefixes*
+  '("; compiling file " "; wrote " "; compilation finished in " "; compiling (")
+  "Per-file progress lines of COMPILE-FILE / LOAD; warnings and notes are kept.")
+
+(defun quiet-build-output (text)
+  "TEXT minus colour codes, per-file compile progress and runs of blank lines:
+   what a load or test run says, not every fasl it wrote."
+  (let* ((blank nil)
+         (kept (with-output-to-string (out)
+                 (dolist (line (uiop:split-string (strip-ansi text) :separator '(#\Newline)))
+                   (let ((empty (zerop (length (string-trim '(#\Space #\Tab #\Return) line)))))
+                     (cond ((some (lambda (p) (alexandria:starts-with-subseq p line)) *build-noise-prefixes*))
+                           ((and empty blank))
+                           (t (write-line line out)
+                              (setf blank empty)))))))
+         (trimmed (string-trim '(#\Newline) kept)))
+    (if (zerop (length trimmed)) "" (format nil "~A~%" trimmed))))
+
+(defun render-eval (result &key quiet)
+  "Values, output and result id of RESULT; QUIET trims build noise from the output."
   (cond ((typep result 'repl:debugger-state) (render-debugger result))
         ((repl:eval-result-aborted-p result)
          (format nil "Aborted~@[: ~A~]~%" (repl:eval-result-reason result)))
         (t (with-text (s)
-             (let ((out (repl:eval-result-output result)))
+             (let ((out (if quiet
+                            (quiet-build-output (repl:eval-result-output result))
+                            (repl:eval-result-output result))))
                (when (plusp (length out)) (format s "Output:~%~A~&" out)))
              (cond ((and (repl:eval-result-values result) (repl:eval-result-entry result))
                     (loop for v in (repl:eval-result-values result)

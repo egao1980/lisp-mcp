@@ -33,7 +33,7 @@
         (let ((tools (gethash "tools" (gethash "result" (funcall by-id 2)))))
           (ok (>= (length tools) 55))
           (ok (find "edit-move" tools :key (lambda (h) (gethash "name" h)) :test #'equal)))
-        (ok (search "references to DEMO::FROB"
+        (ok (search "references to DEMO:FROB"
                     (gethash "text" (elt (gethash "content" (gethash "result" (funcall by-id 3))) 0))))
         (ok (find-if (lambda (m) (and (equal (gethash "method" m) "notifications/progress")
                                       (eql 9 (gethash "progressToken" (gethash "params" m)))))
