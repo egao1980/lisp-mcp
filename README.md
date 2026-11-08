@@ -23,8 +23,11 @@ You can set the root with `--root` or `MCP_PROJECT_ROOT`. Every path is resolved
 Claude Code:
 
 ```bash
-claude mcp add lisp-mcp -- ros +Q -- /path/to/lisp-mcp/roswell/lisp-mcp.ros --root "$PWD"
+claude mcp add lisp-mcp -- bash -c 'cd /path/to/lisp-mcp && exec cl-repo run -- ros +Q -- roswell/lisp-mcp.ros --root "$0"' "$PWD"
 ```
+
+`cl-repo run` installs the dependencies from GHCR first and puts them on the
+ASDF registry. `+Q` keeps Quicklisp out: Roswell's `-Q` turns it on.
 
 `.mcp.json`:
 

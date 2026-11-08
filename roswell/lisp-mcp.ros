@@ -3,10 +3,14 @@
 #|
 exec ros +Q -- $0 "$@"
 |#
+;;; Its own top-level form: under +Q ASDF loads here, and the next form names
+;;; asdf: symbols, which the reader needs before it runs.
+(let ((*standard-output* *error-output*))
+  (ros:ensure-asdf))
+
 (progn
   ;; stdout carries JSON-RPC: everything printed while loading goes to stderr.
   (let ((*standard-output* *error-output*))
-    (ros:ensure-asdf)
     (asdf:load-system "lisp-mcp" :verbose nil)))
 
 (defpackage :ros.script.lisp-mcp
