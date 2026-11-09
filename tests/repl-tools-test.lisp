@@ -91,3 +91,13 @@
            (ok error)
            (ok (search "backend slynk" text)))
       (call "repl-disconnect"))))
+
+(deftest build-output-is-trimmed
+  "repl-load-system / repl-run-tests returned every '; compiling file' and
+   '; wrote' line plus Rove's colour codes; warnings and results stay."
+  (let ((esc (code-char 27)))
+    (ok (equal (lisp-mcp::quiet-build-output
+                (format nil "; compiling file \"/a.lisp\" (written 1 NOV):~%~%; wrote /a.fasl~%~
+                             ; compilation finished in 0:00:00.001~%WARNING: w~%~%~%~
+                             ~C[32m✓ ~C[0m~C[90mExpect X~C[0m~%" esc esc esc esc))
+               (format nil "WARNING: w~%~%✓ Expect X~%")))))

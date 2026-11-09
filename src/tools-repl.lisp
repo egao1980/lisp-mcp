@@ -146,7 +146,7 @@
   (let ((repl:*repl-timeout* (or (arg-int args "timeout") 300))
         (system (require-arg args "system")))
     (progress 0 1 "Loading ~A" system)
-    (prog1 (render-eval (repl:repl-load-system (conn args) system))
+    (prog1 (render-eval (repl:repl-load-system (conn args) system) :quiet t)
       (progress 1 1 "Loaded ~A" system))))
 
 (define-tool "repl-run-tests"
@@ -155,7 +155,8 @@
   (let ((system (require-arg args "system")))
     (progress 0 1 "Testing ~A" system)
     (prog1 (render-eval (repl:repl-eval (conn args) (format nil "(asdf:test-system ~S)" system)
-                                        :timeout (or (arg-int args "timeout") 600)))
+                                        :timeout (or (arg-int args "timeout") 600))
+                        :quiet t)
       (progress 1 1 "Tested ~A" system))))
 
 (define-tool "repl-interrupt" (args :description "Interrupt the running evaluation (it enters the debugger)." :kind :write)

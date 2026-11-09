@@ -142,6 +142,12 @@ used, so nothing is interned."
 
 (defun qualified (package name) (format nil "~A::~A" package name))
 
+(defun display-symbol (model package name)
+  "PACKAGE:NAME when the package exports NAME, else PACKAGE::NAME."
+  (let ((package (src:canonical-package-name model (string-upcase package)))
+        (name (string-upcase name)))
+    (format nil "~A~:[::~;:~]~A" package (src:package-exports-p model package name) name)))
+
 (define-tool "source-find-definitions"
     (args :description "Static definitions of a symbol across the project (.lisp/.asd), resolved through defpackage :use / :import-from / nicknames without loading code. live=true adds the image's own definition locations (including generated or macro-made ones)."
           )
@@ -159,7 +165,7 @@ used, so nothing is interned."
                    do (format s "~A:~A ~A ~A [~A]~%" (relative-name (src:parsed-source-path ps))
                               (position-string ps (src:node-start node))
                               (src:outline-entry-kind entry) (src:outline-entry-name entry) (path-string node))))
-           (format nil "No static definition of ~A::~A in ~D files~%" package name (length sources)))
+           (format nil "No static definition of ~A in ~D files~%" (display-symbol model package name) (length sources)))
        (live-section args "definitions"
                      (lambda (conn) (render-xrefs (repl:repl-find-definitions conn (qualified package name)))))))))
 
@@ -173,7 +179,7 @@ used, so nothing is interned."
       (concatenate
        'string
        (with-text (s)
-         (format s "~D reference~:P to ~A::~A~%" (length refs) (string-upcase package) (string-upcase name))
+         (format s "~D reference~:P to ~A~%" (length refs) (display-symbol model package name))
          (loop for (ps . node) in refs
                do (format s "  ~A:~A ~A~%" (relative-name (src:parsed-source-path ps))
                           (position-string ps (src:node-start node)) (src:node-text node))))
