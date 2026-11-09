@@ -62,7 +62,7 @@ image defines it), NIL (it does not) or :UNKNOWN."
 
 (defun render-edit-result (result name)
   (with-text (s)
-    (format s "~:[Dry run, nothing written~*~;Wrote ~A~]: ~(~A~); new file hash ~A~%"
+    (format s "~:[Dry run, nothing written to~;Wrote~] ~A: ~(~A~); new file hash ~A~%"
             (src:edit-result-written-p result) name
             (src:edit-plan-operation (src:edit-result-plan result))
             (src:parsed-source-hash (src:edit-result-parsed result)))

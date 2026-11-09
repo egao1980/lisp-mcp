@@ -55,7 +55,7 @@
                      "code" "(defun caller () (frob 3))" "dry_run" t)))
       (ok (search "Dry run" dry))
       ;; the operation and a real hash, not the path and the operation name
-      (ok (search ": replace; new file hash " dry))
+      (ok (search "Dry run, nothing written to src/demo.lisp: replace; new file hash " dry))
       (let ((at (+ (search "new file hash " dry) (length "new file hash "))))
         (ok (every (lambda (c) (digit-char-p c 16)) (subseq dry at (+ at 16)))))
       (ok (search "+(defun caller () (frob 3))" dry)))

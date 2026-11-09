@@ -245,7 +245,10 @@
     (input-schema '("frame" "integer" "Frame index" :required t) +code+ +package+ +connection+)
   (let ((v (repl:repl-eval-in-frame (conn args) (arg-int args "frame") (require-arg args "code")
                                     :package (arg-string args "package"))))
-    (if (typep v 'repl:debugger-state) (render-debugger v) (format nil "=> ~A~%" v))))
+    (if (typep v 'repl:debugger-state)
+        (render-debugger v)
+        ;; Swank's pprint result starts and ends with newlines
+        (format nil "=> ~A~%" (string-trim '(#\Newline #\Space) (princ-to-string v))))))
 
 (define-tool "debug-invoke-restart"
     (args :description "Invoke a restart by index; returns how the interrupted evaluation finished (values, abort, or a new debugger level)."
