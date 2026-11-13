@@ -30,11 +30,11 @@
 ;;; Lifecycle
 
 (define-tool "repl-spawn"
-    (args :description "Start a fresh SBCL image (via `ros run`) serving Swank or Slynk on localhost and connect to it. The image runs the project's code; this server never evaluates it."
+    (args :description "Start a fresh SBCL image (via `ros +Q run`, no Quicklisp; Swank/Slynk load with ASDF from the cl-repo install tree) serving Swank or Slynk on localhost and connect to it. The image runs the project's code; this server never evaluates it."
           :kind :write)
     (input-schema '("backend" "string" "swank (default) or slynk" :enum ("swank" "slynk"))
                   '("name" "string" "Connection name")
-                  '("command" "string" "Image command prefix, whitespace separated (default: ros run --)"))
+                  '("command" "string" "Image command prefix, whitespace separated (default: ros +Q run --)"))
   (let* ((backend (backend-named (arg-string args "backend")))
          (command (let ((c (arg-string args "command")))
                     (if c (uiop:split-string c :separator " ") repl:*default-image-command*)))
