@@ -69,7 +69,7 @@ Output from other threads of a spawned image goes to the image's own log, not to
 ## Test
 
 ```bash
-ros -e '(asdf:test-system "lisp-mcp")' -q   # spawns SBCL+Swank and SBCL+Slynk images
+cl-repo test   # spawns SBCL+Swank and SBCL+Slynk images
 ```
 
 The suite covers every layer in process, both transports end to end (stdio stream, HTTP app with SSE), resources, progress and log notifications, and live sessions against both backends.
