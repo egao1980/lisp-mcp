@@ -1,5 +1,5 @@
 (defsystem "lisp-mcp"
-  :version "0.3.0"
+  :version "0.3.1"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"

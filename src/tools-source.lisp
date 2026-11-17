@@ -26,13 +26,29 @@ BODY runs with ARGS-VAR bound to the JSON arguments object and returns text."
   (let ((file (resolve-project-path path)))
     (values (cached-source file) (relative-name file))))
 
+(defun edit-distance (a b)
+  "Levenshtein distance between strings A and B, case-insensitive."
+  (let ((row (coerce (alexandria:iota (1+ (length b))) 'simple-vector)))
+    (loop for i from 1 to (length a)
+          do (let ((diagonal (svref row 0)))
+               (setf (svref row 0) i)
+               (loop for j from 1 to (length b)
+                     do (let ((above (svref row j)))
+                          (setf (svref row j)
+                                (min (1+ above) (1+ (svref row (1- j)))
+                                     (+ diagonal (if (char-equal (char a (1- i)) (char b (1- j))) 0 1))))
+                          (setf diagonal above)))))
+    (svref row (length b))))
+
 (defun near-definitions (parsed name)
-  "Outline entries whose name equals, contains or is contained in NAME."
+  "Outline entries whose name equals, contains or is contained in NAME, or is
+a typo away from it (edit distance up to a third of its length, at most 3)."
   (remove-if-not (lambda (e)
                    (let ((other (princ-to-string (src:outline-entry-name e))))
                      (or (string-equal name other)
                          (search name other :test #'char-equal)
-                         (and (> (length other) 2) (search other name :test #'char-equal)))))
+                         (and (> (length other) 2) (search other name :test #'char-equal))
+                         (<= (edit-distance name other) (min 3 (floor (length name) 3))))))
                  (src:outline parsed)))
 
 (defun locator-miss-hint (parsed locator)
