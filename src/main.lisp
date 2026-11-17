@@ -17,10 +17,12 @@
 
 (defun main (&key (args (uiop:command-line-arguments)))
   "Entry point: lisp-mcp [--transport stdio|http] [--root DIR] [--host H] [--port P]
-[--spawn swank|slynk] [--attach HOST:PORT] [--backend swank|slynk]."
+[--spawn swank|slynk] [--attach HOST:PORT] [--backend swank|slynk]
+[--max-output-lines N] [--max-output-chars N] (or LISP_MCP_MAX_OUTPUT_LINES / _CHARS)."
   (let* ((opts (parse-cli args))
          (root (or (getf opts :root) (uiop:getenv "MCP_PROJECT_ROOT") (uiop:getcwd)))
          (server (make-lisp-mcp-server :root root)))
+    (configure-output-limits :lines (getf opts :max-output-lines) :chars (getf opts :max-output-chars))
     (alexandria:when-let ((backend (getf opts :spawn)))
       (let ((c (repl:repl-spawn (backend-named backend) :directory (state-root *state*))))
         (add-connection (fresh-connection-name backend) c)))

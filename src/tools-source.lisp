@@ -26,8 +26,44 @@ BODY runs with ARGS-VAR bound to the JSON arguments object and returns text."
   (let ((file (resolve-project-path path)))
     (values (cached-source file) (relative-name file))))
 
+(defun near-definitions (parsed name)
+  "Outline entries whose name equals, contains or is contained in NAME."
+  (remove-if-not (lambda (e)
+                   (let ((other (princ-to-string (src:outline-entry-name e))))
+                     (or (string-equal name other)
+                         (search name other :test #'char-equal)
+                         (and (> (length other) 2) (search other name :test #'char-equal)))))
+                 (src:outline parsed)))
+
+(defun locator-miss-hint (parsed locator)
+  "What to try after LOCATOR (parsed form) found nothing in PARSED, so the
+next call can succeed without another read."
+  (let ((text (src:parsed-source-text parsed)))
+    (flet ((entry-line (e)
+             (let ((node (src:outline-entry-node e)))
+               (format nil "~(~A~) ~(~A~)  ~A L~D" (src:outline-entry-kind e) (src:outline-entry-name e)
+                       (path-string node) (src:offset-line-column text (src:node-start node))))))
+      (case (first locator)
+        (:definition
+         (let ((near (near-definitions parsed (third locator)))
+               (all (src:outline parsed)))
+           (cond (near (format nil "Close matches:~{~%  ~A~}" (mapcar #'entry-line (subseq near 0 (min 10 (length near))))))
+                 (all (format nil "No definition named like that. The file defines ~D form~:P, e.g.:~{~%  ~A~}"
+                              (length all) (mapcar #'entry-line (subseq all 0 (min 10 (length all))))))
+                 (t "The file has no definitions."))))
+        (:path (format nil "The file has ~D top-level form~:P (path:0 to path:~D); source-outline shows their paths."
+                       (length (src:parsed-source-forms parsed)) (1- (length (src:parsed-source-forms parsed)))))
+        (:line (format nil "The file has ~D line~:P." (src:line-count text)))
+        (:hash "No top-level form has that hash; the file may have changed. source-outline gives current paths.")
+        (t "source-outline lists the file's forms.")))))
+
 (defun locate-in (parsed locator)
-  (handler-bind ((src:ambiguous-locator
+  (handler-bind ((src:locator-not-found
+                   (lambda (c)
+                     (error 'bad-argument
+                            :message (format nil "No form matches locator ~S. ~A" locator
+                                             (locator-miss-hint parsed (src:locator-error-locator c))))))
+                 (src:ambiguous-locator
                    (lambda (c)
                      (error 'bad-argument
                             :message (format nil "Locator ~S matches ~D forms; use one of:~{~%  ~A~}"

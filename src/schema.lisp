@@ -19,10 +19,26 @@
                      "required" (if required (coerce (nreverse required) 'vector) :omit))))
 
 (defun json-false-p (v)
-  (or (null v) (member v '(:false :null :json-false))))
+  (or (null v) (member v '(:false :null :json-false))
+      (and (stringp v) (member (string-trim " " v) '("false" "0" "no" "nil" "") :test #'string-equal))))
+
+(defun arg-name-variants (name)
+  "NAME, then the spellings models carry over from other tools: camelCase
+(expected_hash → expectedHash) and kebab-case (expected-hash)."
+  (let ((parts (uiop:split-string name :separator "_")))
+    (remove-duplicates
+     (list name
+           (format nil "~A~{~:(~A~)~}" (first parts) (rest parts))
+           (substitute #\- #\_ name))
+     :test #'string= :from-end t)))
 
 (defun arg (args name &optional default)
-  (let ((v (mcp:param args name :absent)))
+  "Argument NAME of ARGS, also found under its camelCase or kebab-case
+spelling; absent or null gives DEFAULT."
+  (let ((v (loop for n in (arg-name-variants name)
+                 for v = (mcp:param args n :absent)
+                 unless (eq v :absent) return v
+                 finally (return :absent))))
     (if (or (eq v :absent) (member v '(:null))) default v)))
 
 (defun arg-bool (args name &optional default)

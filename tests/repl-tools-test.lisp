@@ -9,6 +9,14 @@
          (progn
            (ok (search "=> 3" (call "repl-eval" "code" "(+ 1 2)")))
            (ok (search "path:0 ok (0 notes)" (call "repl-compile" "path" "demo.lisp" "locator" "defun half")))
+           ;; compile=true on an edit compiles the changed form in the image
+           (ok (search "compiled path:0 ok" (call "edit-replace" "path" "demo.lisp" "locator" "defun half"
+                                                  "code" "(defun half (x) (/ x 2))" "compile" t)))
+           (ok (search "undefined variable" (call "edit-replace" "path" "demo.lisp" "locator" "defun half"
+                                                  "code" "(defun half (x) (/ x two))" "compile" t)
+                       :test #'char-equal))
+           (call "edit-replace" "path" "demo.lisp" "locator" "defun half" "code" "(defun half (x) (/ x 2))"
+                 "compile" t)
            (let ((debug (call "repl-eval" "code" "(half \"x\")")))
              (ok (search "DEBUGGER level 1" debug))
              (ok (search "ABORT" debug)))

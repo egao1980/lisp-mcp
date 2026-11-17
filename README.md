@@ -44,12 +44,19 @@ Step-by-step sessions (edit → compile → debug → inspect): [cl-stack cookbo
 - **repl:** `repl-spawn`, `repl-connect`, `repl-list`, `repl-disconnect`, `repl-eval`, `repl-compile`, `repl-load-system`, `repl-run-tests`, `repl-interrupt`, `repl-output`, `repl-describe`, `repl-documentation`, `repl-arglist`, `repl-apropos`, `repl-complete`, `repl-macroexpand`, `repl-xref`, `repl-find-definitions`, `repl-threads`, `repl-channel-open`, `repl-channel-list`, `repl-channel-close`
 - **debugger:** `debug-state`, `debug-backtrace`, `debug-frame-locals`, `debug-frame-source`, `debug-eval-in-frame`, `debug-step`, `debug-invoke-restart`, `debug-return-from-frame`, `debug-restart-frame`
 - **inspector:** `inspect`, `inspect-part`, `inspect-action`, `inspect-back`, `inspect-condition`, `inspect-frame-var`, `inspect-history`
+- **output:** `output-read`
 
 Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`. Read-only tools carry `readOnlyHint`; tools that write files or run code carry `destructiveHint`.
 
 **Hybrid answers.** `source-outline`, `source-find-definitions` and `source-find-references` take `live: true`: the static answer is kept, and the connected image adds what only it knows (which definitions are loaded, macro-generated definitions, who-calls / who-references through macros), marked `[image]`.
 
 **Indentation.** Code that edits insert is re-indented in Emacs/SLIME style. The table is the standard one, plus the indentation hints the connected image sends, plus the `&body` position of every `defmacro` in the project.
+
+**Long output.** A result over 200 lines or 16,000 characters is cut, for every tool, in one place. The client gets the head and the tail (errors and summaries come last) and a note naming a stored id such as `o3`. `output-read` with that id reads the rest: `offset`/`limit` page through it, and `grep` (`|` separates alternatives, `context` lines around each match) returns only the matching lines. The same text is at `lisp-output://{id}`, `…/lines/{start}-{end}` and `…/grep/{+pattern}`, so a long build log or test run costs tokens only for the part asked for. The last 64 outputs are kept. Lines over 2,000 characters are cut in returned text, around the match for `grep`. Limits: `--max-output-lines`, `--max-output-chars`, or `LISP_MCP_MAX_OUTPUT_LINES`, `LISP_MCP_MAX_OUTPUT_CHARS` and `LISP_MCP_OUTPUT_STORE_SIZE`.
+
+**Edits that miss say what to do next.** A locator that matches nothing lists the close definitions with their paths, or how many forms or lines the file has. A stale `expected_hash` shows the form as it now reads and the hash to retry with. It also says when the new code is already in the file, so the edit may already be applied. `compile: true` on an edit compiles the changed top-level forms in the live image and appends the compiler notes.
+
+**Lenient arguments.** `"false"` and `"20"` for booleans and integers, and `expectedHash` or `expected-hash` for `expected_hash`, are accepted (mcp-protocol `repair-tool-arguments`).
 
 **Channels (Slynk).** `repl-channel-open` starts another REPL in the image with its own thread, package and value history. `repl-eval` with `channel` prints each value with its `#v<entry>:<index>` reference, which later code can use; `inspect-history` inspects one.
 
@@ -61,6 +68,7 @@ Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `lin
 | `repl://{connection}/output` | output the image sent outside eval results; subscribe for updates |
 | `repl://{connection}/debugger` | innermost debugger level, or "Not in the debugger"; subscribe for updates |
 | `repl://connections` | live connections |
+| `lisp-output://{id}` (`/lines/{start}-{end}`, `/grep/{+pattern}`) | stored text of a result that was cut short |
 
 Image output and debugger entries are also sent as log messages (`notifications/message`, logger `repl/<connection>`). Project scans, `repl-load-system`, `repl-run-tests` and whole-file `repl-compile` report progress when the request has a `progressToken`. On stdio, notifications can arrive at any time. Over HTTP they travel in the SSE response of the request that caused them; output outside a request is not delivered there.
 

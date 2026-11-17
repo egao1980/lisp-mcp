@@ -34,6 +34,9 @@
    (image-indentation :initform '() :accessor state-image-indentation
                       :documentation "(name . spec) hints sent by connected images.")
    (source-cache :initform nil :accessor state-source-cache)
+   (outputs :initform '() :accessor state-outputs
+            :documentation "STORED-OUTPUT objects, newest first.")
+   (output-counter :initform 0 :accessor state-output-counter)
    (lock :initform (bt2:make-lock :name "lisp-mcp state") :reader state-lock)))
 
 (defvar *state* nil "The LISP-MCP-STATE of the running server.")
