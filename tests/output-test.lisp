@@ -71,6 +71,8 @@
       (ok error)
       (ok (search "Close matches" text))
       (ok (search "defun frob" text)))
+    (ok (search "defun caller" (nth-value 0 (call "source-read" "path" "src/demo.lisp" "locator" "defun calelr")))
+        "a typo finds the definition")
     (ok (search "4 top-level forms" (nth-value 0 (call "source-read" "path" "src/demo.lisp" "locator" "path:9"))))
     ;; a stale hash shows the form as it is now and the hash to retry with
     (let ((hash (let ((check (call "source-check" "path" "src/demo.lisp" "rules" "none")))
