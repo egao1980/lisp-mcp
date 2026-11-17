@@ -7,13 +7,84 @@
   '("expected_hash" "string" "File hash from source-read/source-outline; the edit is refused if the file changed since"))
 (defparameter +dry-run+ '("dry_run" "boolean" "Show the diff without writing"))
 
-(defun commit (plan args name &key (hash-arg "expected_hash"))
-  (let ((path (src:parsed-source-path (src:edit-plan-parsed plan))))
-    (prog1 (render-edit-result (src:commit-plan plan :dry-run (arg-bool args "dry_run")
-                                                     :expected-hash (arg-string args hash-arg))
-                               name)
-      ;; the write may land in the same second with the same length
-      (forget-source path))))
+(defparameter +compile+
+  '("compile" "boolean" "After writing, compile the changed top-level forms in the live image and append its compiler notes"))
+(defparameter +edit-connection+ '("connection" "string" "Image for compile=true (default: the most recent)"))
+
+(defun squeeze-space (string)
+  (format nil "~{~A~^ ~}"
+          (remove "" (uiop:split-string string :separator '(#\Space #\Tab #\Newline #\Return))
+                  :test #'string=)))
+
+(defun first-lines (text count)
+  (let ((lines (uiop:split-string text :separator '(#\Newline))))
+    (if (<= (length lines) count)
+        text
+        (format nil "~{~A~%~}… (~D more lines)" (subseq lines 0 count) (- (length lines) count)))))
+
+(defun stale-hint (condition parsed name node args)
+  "Message for a stale expected_hash: whether the edit looks already applied,
+and the form as it now reads, so the retry needs no re-read."
+  (with-text (s)
+    (format s "~A changed since it was read: its hash is now ~A, expected_hash was ~A."
+            name (src:stale-source-actual condition) (src:stale-source-expected condition))
+    (let ((code (arg-string args "code")))
+      (when (and code (plusp (length (squeeze-space code)))
+                 (search (squeeze-space code) (squeeze-space (src:source-string (src:parsed-source-text parsed)))))
+        (format s " The new code is already in the file: this edit may already be applied.")))
+    (when node
+      (format s "~%The form now reads (~A):~%~A" (path-string node) (first-lines (src:node-text node) 40)))
+    (format s "~%If that is still the form you mean, retry with expected_hash ~A; otherwise re-read it with source-read.~%"
+            (src:parsed-source-hash parsed))))
+
+(defun changed-top-level-forms (plan result)
+  "Top-level forms of RESULT's new text that the edits of PLAN wrote into."
+  (let ((delta 0) (spans '()))
+    (dolist (e (sort (copy-list (src:edit-plan-edits plan)) #'< :key #'src:text-edit-start))
+      (let ((start (+ (src:text-edit-start e) delta))
+            (size (length (src:text-edit-replacement e))))
+        (push (cons start (+ start size)) spans)
+        (incf delta (- size (- (src:text-edit-end e) (src:text-edit-start e))))))
+    (remove-if-not (lambda (form)
+                     (some (lambda (span) (and (< (car span) (src:node-end form))
+                                               (> (cdr span) (src:node-start form))))
+                           spans))
+                   (src:parsed-source-forms (src:edit-result-parsed result)))))
+
+(defun compile-changed (plan result args)
+  "Compiler notes for the forms PLAN changed, compiled in the image; a note
+when there is no image. Stops at a debugger entry."
+  (let ((forms (changed-top-level-forms plan result))
+        (parsed (src:edit-result-parsed result)))
+    (if (null forms)
+        ""
+        (handler-case
+            (let ((c (find-connection (arg-string args "connection"))))
+              (with-text (s)
+                (dolist (form forms)
+                  (let ((compiled (repl:repl-compile-string c (src:node-text form)
+                                                            :package (src:package-at parsed (src:node-start form))
+                                                            :filename (namestring (src:parsed-source-path parsed))
+                                                            :position (src:node-start form))))
+                    (write-string (render-compile compiled :label (format nil "compiled ~A" (path-string form))) s)
+                    (when (typep compiled 'repl:debugger-state) (return))))))
+          ((or no-connection unknown-connection) (e)
+            (format nil "compile skipped: ~A~%" e))))))
+
+(defun commit (plan args name &key (hash-arg "expected_hash") node)
+  "Write PLAN (or show it, with dry_run) and render the result. A stale hash
+becomes a BAD-ARGUMENT with a retry hint; compile=true appends compiler notes."
+  (let* ((parsed (src:edit-plan-parsed plan))
+         (result (handler-bind ((src:stale-source
+                                  (lambda (c) (error 'bad-argument :message (stale-hint c parsed name node args)))))
+                   (src:commit-plan plan :dry-run (arg-bool args "dry_run")
+                                         :expected-hash (arg-string args hash-arg)))))
+    ;; the write may land in the same second with the same length
+    (forget-source (src:parsed-source-path parsed))
+    (with-text (s)
+      (write-string (render-edit-result result name) s)
+      (when (and (src:edit-result-written-p result) (arg-bool args "compile"))
+        (write-string (compile-changed plan result args) s)))))
 
 (defun indented-for-project (function)
   "Call FUNCTION with indentation prepared from the image and project macros."
@@ -22,10 +93,10 @@
 
 (defmacro define-node-edit (tool-name description (parsed node args) extra-schema &body plan-form)
   `(define-tool ,tool-name (,args :description ,description :kind :write)
-       (input-schema +path+ +locator+ ,@extra-schema +expected-hash+ +dry-run+)
+       (input-schema +path+ +locator+ ,@extra-schema +expected-hash+ +dry-run+ +compile+ +edit-connection+)
      (multiple-value-bind (,parsed name) (read-project-file (require-arg ,args "path"))
        (let ((,node (locate-in ,parsed (require-arg ,args "locator"))))
-         (commit (indented-for-project (lambda () ,@plan-form)) ,args name)))))
+         (commit (indented-for-project (lambda () ,@plan-form)) ,args name :node ,node)))))
 
 (define-node-edit "edit-replace"
     "Replace one form with new code. The code must read as exactly one balanced form; continuation lines are re-indented to the form's column."
@@ -77,7 +148,7 @@
                   '("where" "string" "after (default) or before" :enum ("after" "before"))
                   +expected-hash+
                   '("target_expected_hash" "string" "Hash of the target file, when it is another file")
-                  +dry-run+)
+                  +dry-run+ +compile+ +edit-connection+)
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (multiple-value-bind (target-parsed target-name)
         (let ((tp (arg-string args "target_path")))
@@ -102,7 +173,8 @@
 (define-tool "edit-repair"
     (args :description "Apply the suggested fix of a paren imbalance reported by source-check (insert missing closers, delete an early/stray one, close a string). Accepted only if the problem count drops."
           :kind :write)
-    (input-schema +path+ '("index" "integer" "Which imbalance (0-based, default 0)") +expected-hash+ +dry-run+)
+    (input-schema +path+ '("index" "integer" "Which imbalance (0-based, default 0)") +expected-hash+ +dry-run+
+                  +compile+ +edit-connection+)
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let ((imbalance (nth (arg-int args "index" 0) (src:parsed-source-imbalances parsed))))
       (unless imbalance
