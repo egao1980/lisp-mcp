@@ -19,7 +19,7 @@ BODY runs with ARGS-VAR bound to the JSON arguments object and returns text."
 (defparameter +path+ '("path" "string" "File path, relative to the project root" :required t))
 (defparameter +locator+
   '("locator" "string"
-    "Form to act on: \"defun foo\", \"defmethod print-object (my-class t)\", \"defclass bar\", \"path:0.2.1\" (top-level index then child indices), \"line:12\" or \"line:12:4\", \"offset:120\", \"hash:<form hash>\""
+    "Form: \"defun foo\", \"defmethod m (c t)\", \"path:0.2\", \"line:12[:col]\", \"offset:N\" or \"hash:H\""
     :required t))
 
 (defun read-project-file (path)
@@ -94,7 +94,7 @@ next call can succeed without another read."
 ;;; Source tools (read only)
 
 (defparameter +live+
-  '("live" "boolean" "Also ask the connected image (default connection, or `connection`) and merge its answer, marked [image]"))
+  '("live" "boolean" "Also ask the image; its answer is marked [image]"))
 (defparameter +live-connection+ '("connection" "string" "Connection for live=true (default: the most recent)"))
 
 (defun live-connection (args)
@@ -137,7 +137,7 @@ used, so nothing is interned."
   (and (not (repl:eval-result-aborted-p result)) (repl:eval-result-values result)))
 
 (define-tool "source-outline"
-    (args :description "Top-level definitions of a file: kind, name, lambda list, docstring, line and structural path. Start here before reading or editing. live=true marks which definitions the image has loaded.")
+    (args :description "Definitions in a file: kind, name, lambda list, line, structural path. live=true marks what the image has loaded.")
     (input-schema +path+ +live+ +live-connection+)
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let ((conn (live-connection args)))
@@ -149,7 +149,7 @@ used, so nothing is interned."
             (t (render-outline parsed name))))))
 
 (define-tool "source-read"
-    (args :description "Text of one form (by locator) with its structural path, line range and the file hash to pass as expected_hash to edit tools. Without a locator, returns the outline.")
+    (args :description "Text of one form (by locator) plus the file hash for expected_hash. No locator: the outline.")
     (input-schema +path+ (append (butlast +locator+ 2) '(:required nil)))
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let ((locator (arg-string args "locator")))
@@ -158,9 +158,9 @@ used, so nothing is interned."
           (render-outline parsed name)))))
 
 (define-tool "source-check"
-    (args :description "Read-check and lint a file without evaluating it: reader errors, paren imbalances with suggested fix positions, unused variables, undefined exports, missing docstrings, missing ASDF components, #. forms.")
+    (args :description "Read and lint a file without evaluating it: reader errors, paren imbalances with fixes, unused vars, bad exports.")
     (input-schema +path+
-                  '("rules" "string" "Comma-separated lint rules (default all): unused-variable, missing-in-package, undefined-export, missing-docstring, asd-missing-component, none"))
+                  '("rules" "string" "Lint rules, comma-separated (default all; none = off)"))
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let* ((rules-arg (arg-string args "rules"))
            (rules (cond ((null rules-arg) src:*lint-rules*)
@@ -201,7 +201,7 @@ used, so nothing is interned."
     (format nil "~A~:[::~;:~]~A" package (src:package-exports-p model package name) name)))
 
 (define-tool "source-find-definitions"
-    (args :description "Static definitions of a symbol across the project (.lisp/.asd), resolved through defpackage :use / :import-from / nicknames without loading code. live=true adds the image's own definition locations (including generated or macro-made ones)."
+    (args :description "Where a symbol is defined in the project, resolved through defpackage. live=true adds the image's locations."
           )
     (input-schema +symbol+ +package+ +live+ +live-connection+)
   (multiple-value-bind (package name) (symbol-args args)
@@ -222,7 +222,7 @@ used, so nothing is interned."
                      (lambda (conn) (render-xrefs (repl:repl-find-definitions conn (qualified package name)))))))))
 
 (define-tool "source-find-references"
-    (args :description "Static references to a symbol across the project, including defpackage :export / :import-from designators. live=true adds the image's who-calls and who-references (sees through macros).")
+    (args :description "References to a symbol in the project, defpackage designators included. live=true adds the image's xrefs.")
     (input-schema +symbol+ +package+ +live+ +live-connection+)
   (multiple-value-bind (package name) (symbol-args args)
     (let* ((sources (project-sources))
@@ -241,7 +241,7 @@ used, so nothing is interned."
                      (lambda (conn) (render-xrefs (repl:repl-xref conn :references (qualified package name)))))))))
 
 (define-tool "source-packages"
-    (args :description "Packages declared in the project (defpackage / define-package): nicknames, used packages, export count, local nicknames and where each is defined.")
+    (args :description "Packages the project defines: nicknames, uses, exports, local nicknames, location.")
     (input-schema)
   (let* ((sources (project-sources))
          (packages (src:package-model-packages (project-model sources))))

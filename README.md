@@ -45,6 +45,7 @@ Step-by-step sessions (edit → compile → debug → inspect): [cl-stack cookbo
 - **debugger:** `debug-state`, `debug-backtrace`, `debug-frame-locals`, `debug-frame-source`, `debug-eval-in-frame`, `debug-step`, `debug-invoke-restart`, `debug-return-from-frame`, `debug-restart-frame`
 - **inspector:** `inspect`, `inspect-part`, `inspect-action`, `inspect-back`, `inspect-condition`, `inspect-frame-var`, `inspect-history`
 - **output:** `output-read`
+- **jobs:** `job-list`, `job-status`, `job-wait`, `job-cancel`
 
 Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`. Read-only tools carry `readOnlyHint`; tools that write files or run code carry `destructiveHint`.
 
@@ -57,6 +58,8 @@ Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `lin
 **Edits that miss say what to do next.** A locator that matches nothing lists the close definitions with their paths, or how many forms or lines the file has. A stale `expected_hash` shows the form as it now reads and the hash to retry with. It also says when the new code is already in the file, so the edit may already be applied. `compile: true` on an edit compiles the changed top-level forms in the live image and appends the compiler notes.
 
 **Terse by default.** Output is short unless a call passes `verbose: true` (or the server runs with `--verbose` / `LISP_MCP_VERBOSE=1`). Terse mode drops the next-step hints, shows 4 backtrace frames instead of 12 in a debugger report, reports a written edit as `(+a -b lines)` instead of its diff (dry runs always show the diff), and drops Rove's passing assertions from `repl-run-tests`/`repl-load-system`, so failures, test names and the summary are what come back. Only the tools with a verbose form (`edit-*`, `repl-eval`, `repl-compile`, `repl-load-system`, `repl-run-tests`, `debug-*`, `inspect*`) carry the argument.
+
+**Long runs become jobs.** `repl-eval`, `repl-compile`, `repl-load-system`, `repl-run-tests`, `debug-invoke-restart` and `debug-step` run in a worker thread. The call waits up to its `timeout` (60 s; 300 for `repl-load-system`, 600 for `repl-run-tests`). If the work takes longer, the evaluation keeps running in the image and the call returns at once: "still running as job jN; do not start another copy …". When the job ends the server sends a log message (logger `lisp-mcp/jobs`) and keeps the result, cut to the output limits like any result (a long one gets an `oN` id). `job-status` reads it, `job-wait` blocks for at most 300 s, `job-list` lists jobs, `job-cancel` interrupts the evaluation (`repl-interrupt`), and the job then reports the debugger state. A call with the same tool and arguments (`timeout` and `verbose` aside) as a running job does not start a second copy: it returns that job's id. An error in the worker is transferred to the call still waiting, or recorded as the job's failure. Over HTTP the completion message is sent only if the transport can notify outside a request; `job-status` always works.
 
 **Lenient arguments.** `"false"` and `"20"` for booleans and integers, and `expectedHash` or `expected-hash` for `expected_hash`, are accepted (mcp-protocol `repair-tool-arguments`).
 

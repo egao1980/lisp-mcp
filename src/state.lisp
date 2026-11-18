@@ -46,6 +46,10 @@ drops hints, long backtraces, diffs of written edits and passing test lines.")
    (outputs :initform '() :accessor state-outputs
             :documentation "STORED-OUTPUT objects, newest first.")
    (output-counter :initform 0 :accessor state-output-counter)
+   (jobs :initform '() :accessor state-jobs
+         :documentation "JOB objects returned to the client as running, newest first.")
+   (job-counter :initform 0 :accessor state-job-counter)
+   (job-cv :initform (bt2:make-condition-variable :name "lisp-mcp jobs") :reader state-job-cv)
    (lock :initform (bt2:make-lock :name "lisp-mcp state") :reader state-lock)))
 
 (defvar *state* nil "The LISP-MCP-STATE of the running server.")
