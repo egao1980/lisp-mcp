@@ -1,12 +1,51 @@
 (in-package #:lisp-mcp)
 
-(defparameter *instructions*
-  "Common Lisp tools. SOURCE (static, never evaluates): source-outline, then source-read (form + file hash), source-check, source-find-*.
-EDIT (structural, never unbalanced; the only way to write .lisp): edit-*. Locator \"defun foo\" / \"path:0.2\" / \"line:12\"; pass expected_hash; dry_run shows the diff.
-LIVE (Swank/Slynk image): repl-spawn or repl-connect, then repl-eval / repl-compile / repl-load-system / repl-run-tests. An error returns the debugger state: debug-backtrace, debug-frame-locals, inspect-condition, debug-invoke-restart.
-JOBS: a call that outlasts its timeout keeps running as job jN. Do not start it again; wait for the log message or call job-status / job-wait; job-cancel interrupts it.
-LONG OUTPUT: a cut-short result names a stored id oN; read it with output-read (offset, grep) instead of re-running.
-Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subscribable), lisp-output://{id}.")
+(defparameter *instruction-parts*
+  '((:source "SOURCE (read only, never evaluates): source-outline, source-read (form + file hash), source-check (reader errors, imbalances with fix, lint), source-find-*.")
+    (:source-image " live=true adds the image's answer.")
+    (:edit "
+EDIT (structural, never unbalanced; the only way to write .lisp): edit-replace / -insert / -delete; edit-structure op wrap (head) | splice | raise | slurp / barf (direction) | transpose | move (target_locator, target_path) | repair (index); edit-rename-symbol, edit-add-export, edit-new-file. Locator: \"defun foo\", \"defmethod m (c t)\", \"path:0.2.1\" (child indices), \"line:12[:col]\", \"offset:N\", \"hash:H\". Pass expected_hash from source-read (a stale one shows the current form and hash); dry_run shows the diff. Code is re-indented.")
+    (:edit-image " compile=true appends the image's notes.")
+    (:repl "
+LIVE (Swank/Slynk image, separate process): repl-spawn or repl-connect, then repl-eval / repl-compile / repl-load-system / repl-run-tests.")
+    (:debug "
+DEBUG: an error returns the debugger state: debug-backtrace, debug-frame-locals, debug-eval-in-frame, debug-step, then debug-invoke-restart.")
+    (:inspect "
+INSPECT: inspect (code or result id), inspect-part.")
+    (:jobs "
+JOBS: a call past its timeout (seconds) keeps running as job jN: do not start it again; wait for the log message, job-status or job-wait; job-cancel interrupts it.")
+    (:output "
+LONG OUTPUT: a cut-short result names a stored id oN: read it with output-read (offset, grep), do not re-run."))
+  "Server instruction text by group; :source-image and :edit-image are added
+when an image group is on too.")
+
+(defparameter *argument-notes*
+  '(((:source :edit :repl) "path is relative to the root")
+    ((:source :edit :repl) "symbol may be pkg:name, package is for an unqualified one")
+    ((:repl :debug :inspect :jobs) "connection names an image (default: the latest)")
+    ((:edit :repl :debug :inspect) "verbose=true gives full detail"))
+  "Arguments that carry no description, explained once: (groups text).")
+
+(defun server-instructions (&key (state *state*))
+  "Instructions for the groups STATE offers: their parts and their resources."
+  (let* ((groups (state-tool-groups state))
+         (image (image-tools-p :state state))
+         (keys (append groups
+                       (and image (member :source groups) '(:source-image))
+                       (and image (member :edit groups) '(:edit-image))))
+         (resources (append (and (member :source groups) '("lisp-source:///{path}"))
+                            (and image '("repl://{connection}/output and /debugger (subscribable)" "repl://connections"))
+                            (and (member :output groups) '("lisp-output://{id}")))))
+    (string-trim '(#\Newline)
+                 (with-output-to-string (s)
+                   (loop for (key text) in *instruction-parts*
+                         when (member key keys) do (write-string text s))
+                   (let ((notes (loop for (on text) in *argument-notes*
+                                      when (intersection on groups) collect text)))
+                     (when notes
+                       (format s "~%ARGS: ~{~A~^; ~}." notes)))
+                   (when resources
+                     (format s "~%Resources: ~{~A~^, ~}." resources))))))
 
 (defun resource-text (thunk)
   "Run THUNK for a resource read; this server's errors become MCP errors."
@@ -21,6 +60,15 @@ Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subs
     (subseq matches 0 (min 100 (length matches)))))
 
 (defun register-resources (server)
+  "Resources of the groups this server offers."
+  (when (group-on-p :source)
+    (register-source-resources server))
+  (when (image-tools-p)
+    (register-image-resources server))
+  (when (group-on-p :output)
+    (register-output-resources server)))
+
+(defun register-source-resources (server)
   (mcp:register-resource-template
    server
    (mcp:make-mcp-resource-template
@@ -34,7 +82,9 @@ Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subs
                (resource-text (lambda ()
                                 (multiple-value-bind (parsed name)
                                     (read-project-file (cdr (assoc "path" vars :test #'string=)))
-                                  (render-outline parsed name)))))))
+                                  (render-outline parsed name))))))))
+
+(defun register-image-resources (server)
   (flet ((connection-names (name value)
            (declare (ignore name))
            (complete-prefix (sort (alexandria:hash-table-keys (state-connections *state*)) #'string<) value)))
@@ -73,21 +123,32 @@ Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subs
   (let ((tool (find name *tools* :key #'first :test #'string=)))
     (funcall (fifth tool) args)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.4.1"))
-  "MCP server with every lisp-mcp tool and resource, rooted at ROOT. Binds
-*STATE* and *SERVER*."
-  (setf *state* (make-state :root root))
+(defparameter *image-arguments* '("live" "compile" "connection")
+  "Arguments of source and edit tools that only matter with a live image.")
+
+(defun tool-schema (tool-name schema)
+  "SCHEMA as this server offers it: verbose and timeout where they apply,
+without the image arguments of a source or edit tool when no image group is on."
+  (let ((schema (add-job-argument tool-name (add-verbose-argument tool-name schema))))
+    (if (and (member (tool-group tool-name) '(:source :edit)) (not (image-tools-p)))
+        (schema-without schema *image-arguments*)
+        schema)))
+
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.5.0") tools)
+  "MCP server rooted at ROOT with the tools and resources of the groups TOOLS
+selects (see PARSE-TOOL-GROUPS; default all). Binds *STATE* and *SERVER*."
+  (setf *state* (make-state :root root :tool-groups tools))
   (process-backend-uiop:use-uiop-process-backend)
   (let ((server (make-instance 'mcp:mcp-server :name name :version version)))
-    (setf (mcp:mcp-server-instructions server) *instructions*
+    (setf (mcp:mcp-server-instructions server) (server-instructions)
           *server* server)
     (dolist (tool (reverse *tools*))
       (destructuring-bind (tool-name description schema annotations handler) tool
-        (mcp:register-tool server
-                           (mcp:make-mcp-tool tool-name :description description
-                                                        :input-schema (add-job-argument tool-name (add-verbose-argument tool-name schema))
-                                                        :annotations annotations
-                                                        :handler (bounded-handler tool-name (if (job-tool-p tool-name) (job-handler tool-name handler) handler))))))
+        (when (group-on-p (tool-group tool-name))
+          (mcp:register-tool server
+                             (mcp:make-mcp-tool tool-name :description description
+                                                          :input-schema (tool-schema tool-name schema)
+                                                          :annotations annotations
+                                                          :handler (bounded-handler tool-name (if (job-tool-p tool-name) (job-handler tool-name handler) handler)))))))
     (register-resources server)
-    (register-output-resources server)
     server))

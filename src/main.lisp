@@ -19,10 +19,15 @@
   "Entry point: lisp-mcp [--transport stdio|http] [--root DIR] [--host H] [--port P]
 [--spawn swank|slynk] [--attach HOST:PORT] [--backend swank|slynk]
 [--max-output-lines N] [--max-output-chars N] (or LISP_MCP_MAX_OUTPUT_LINES / _CHARS)
-[--verbose] (or LISP_MCP_VERBOSE=1): verbose output by default."
+[--verbose] (or LISP_MCP_VERBOSE=1): verbose output by default.
+[--tools GROUPS] (or LISP_MCP_TOOLS): comma list of source, edit, output, repl,
+debug, inspect, jobs, or the presets code (source,edit,output), image
+(repl,debug,inspect,jobs,output) and all (the default)."
   (let* ((opts (parse-cli args))
          (root (or (getf opts :root) (uiop:getenv "MCP_PROJECT_ROOT") (uiop:getcwd)))
-         (server (make-lisp-mcp-server :root root)))
+         (tools (let ((spec (or (getf opts :tools) (uiop:getenv "LISP_MCP_TOOLS"))))
+                  (and (stringp spec) (plusp (length (string-trim " " spec))) spec)))
+         (server (make-lisp-mcp-server :root root :tools tools)))
     (configure-output-limits :lines (getf opts :max-output-lines) :chars (getf opts :max-output-chars)
                              :verbose (getf opts :verbose))
     (alexandria:when-let ((backend (getf opts :spawn)))

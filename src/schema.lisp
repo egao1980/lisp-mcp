@@ -3,20 +3,32 @@
 ;;; JSON Schema for tool inputs, and argument access.
 
 (defun input-schema (&rest properties)
-  "PROPERTIES: (name type description &key required enum default)."
+  "PROPERTIES: (name type description &key required enum default). A NIL
+description is left out: the server instructions explain the common arguments."
   (let ((props (make-hash-table :test #'equal))
-        (required '()))
+        (required-names '()))
     (dolist (p properties)
       (destructuring-bind (name type description &key required enum default) p
         (setf (gethash name props)
               (mcp:json-object "type" type
-                               "description" description
+                               "description" (or description :omit)
                                "enum" (if enum (coerce enum 'vector) :omit)
                                "default" (if default default :omit)))
-        (when required (push name required))))
+        (when required (push name required-names))))
     (mcp:json-object "type" "object"
                      "properties" props
-                     "required" (if required (coerce (nreverse required) 'vector) :omit))))
+                     "required" (if required-names (coerce (nreverse required-names) 'vector) :omit))))
+
+(defun schema-without (schema names)
+  "A copy of SCHEMA without the properties NAMES (SCHEMA is not changed)."
+  (let ((props (alexandria:copy-hash-table (gethash "properties" schema)))
+        (required (gethash "required" schema)))
+    (dolist (n names) (remhash n props))
+    (mcp:json-object "type" "object"
+                     "properties" props
+                     "required" (let ((left (remove-if (lambda (n) (member n names :test #'string=))
+                                                       (coerce (or required #()) 'list))))
+                                  (if left (coerce left 'vector) :omit)))))
 
 (defun json-false-p (v)
   (or (null v) (member v '(:false :null :json-false))
@@ -69,7 +81,7 @@ spelling; absent or null gives DEFAULT."
 ;;; Locators
 
 (defun parse-locator (string)
-  "Locator syntax (documented in the tool descriptions):
+  "Locator syntax (documented once, in the server instructions):
   defun foo | defmethod print-object (my-class t) | defclass bar  → by definition
   path:0.2.1   → structural path (top-level index, then child indices)
   line:12 | line:12:4   → innermost form at line (1-based) / column (0-based)

@@ -32,7 +32,7 @@
                       (src:diagnostic-severity d) (src:diagnostic-kind d)
                       (substitute #\Space #\Newline (src:diagnostic-message d))))
             (when imbalances
-              (format s "Use edit-repair to apply a suggested fix; forms marked recovered refuse other edits.~%")))))))
+              (format s "Use edit-structure op repair to apply a suggested fix; forms marked recovered refuse other edits.~%")))))))
 
 (defun render-outline (parsed name &key marks)
   "Outline text. MARKS, when given, has one entry per outline entry: T (the

@@ -5,22 +5,21 @@
 (defvar *tools* '() "List of (name description schema annotations handler), newest first.")
 
 (defmacro define-tool (name (args-var &key description (kind :read)) schema &body body)
-  "Register tool NAME. KIND is :READ (readOnlyHint) or :WRITE (destructiveHint).
+  "Register tool NAME. KIND is :READ (readOnlyHint) or :WRITE (no annotations:
+the defaults, readOnlyHint false and destructiveHint true, say it).
 BODY runs with ARGS-VAR bound to the JSON arguments object and returns text."
   `(progn
      (setf *tools* (remove ,name *tools* :key #'first :test #'string=))
      (push (list ,name ,description ,schema
-                 (mcp:json-object "readOnlyHint" ,(eq kind :read)
-                                  "destructiveHint" ,(eq kind :write))
+                 ,(if (eq kind :read) '(mcp:json-object "readOnlyHint" t) nil)
                  (lambda (,args-var) (declare (ignorable ,args-var)) ,@body))
            *tools*)
      ,name))
 
-(defparameter +path+ '("path" "string" "File path, relative to the project root" :required t))
-(defparameter +locator+
-  '("locator" "string"
-    "Form: \"defun foo\", \"defmethod m (c t)\", \"path:0.2\", \"line:12[:col]\", \"offset:N\" or \"hash:H\""
-    :required t))
+;; Common arguments carry no description: the server instructions explain
+;; them, and the locator syntax, once.
+(defparameter +path+ '("path" "string" nil :required t))
+(defparameter +locator+ '("locator" "string" nil :required t))
 
 (defun read-project-file (path)
   (let ((file (resolve-project-path path)))
@@ -93,9 +92,8 @@ next call can succeed without another read."
 
 ;;; Source tools (read only)
 
-(defparameter +live+
-  '("live" "boolean" "Also ask the image; its answer is marked [image]"))
-(defparameter +live-connection+ '("connection" "string" "Connection for live=true (default: the most recent)"))
+(defparameter +live+ '("live" "boolean" nil))
+(defparameter +live-connection+ '("connection" "string" nil))
 
 (defun live-connection (args)
   "The connection to ask when live=true, or NIL with a note when there is none."
@@ -137,7 +135,7 @@ used, so nothing is interned."
   (and (not (repl:eval-result-aborted-p result)) (repl:eval-result-values result)))
 
 (define-tool "source-outline"
-    (args :description "Definitions in a file: kind, name, lambda list, line, structural path. live=true marks what the image has loaded.")
+    (args :description "Definitions in a file: kind, name, lambda list, line, path. live=true marks loaded ones.")
     (input-schema +path+ +live+ +live-connection+)
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let ((conn (live-connection args)))
@@ -149,7 +147,7 @@ used, so nothing is interned."
             (t (render-outline parsed name))))))
 
 (define-tool "source-read"
-    (args :description "Text of one form (by locator) plus the file hash for expected_hash. No locator: the outline.")
+    (args :description "One form's text (by locator) and the file hash. No locator: the outline.")
     (input-schema +path+ (append (butlast +locator+ 2) '(:required nil)))
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let ((locator (arg-string args "locator")))
@@ -158,9 +156,9 @@ used, so nothing is interned."
           (render-outline parsed name)))))
 
 (define-tool "source-check"
-    (args :description "Read and lint a file without evaluating it: reader errors, paren imbalances with fixes, unused vars, bad exports.")
+    (args :description "Read-check and lint a file, never evaluating it: reader errors, imbalances with fixes, lint.")
     (input-schema +path+
-                  '("rules" "string" "Lint rules, comma-separated (default all; none = off)"))
+                  '("rules" "string" "Lint rules, comma list (default all; none)"))
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
     (let* ((rules-arg (arg-string args "rules"))
            (rules (cond ((null rules-arg) src:*lint-rules*)
@@ -180,8 +178,8 @@ used, so nothing is interned."
           (values (subseq symbol 0 colon) (string-left-trim ":" (subseq symbol colon)))
           (values (or (arg-string args "package") "COMMON-LISP-USER") symbol)))))
 
-(defparameter +symbol+ '("symbol" "string" "Symbol, optionally package-qualified (pkg:name)" :required t))
-(defparameter +package+ '("package" "string" "Package for an unqualified symbol"))
+(defparameter +symbol+ '("symbol" "string" nil :required t))
+(defparameter +package+ '("package" "string" nil))
 
 (defun live-section (args title function)
   "Text for a live=true section: FUNCTION's result from the connection, or a note."
@@ -201,7 +199,7 @@ used, so nothing is interned."
     (format nil "~A~:[::~;:~]~A" package (src:package-exports-p model package name) name)))
 
 (define-tool "source-find-definitions"
-    (args :description "Where a symbol is defined in the project, resolved through defpackage. live=true adds the image's locations."
+    (args :description "Where a symbol is defined, resolved through defpackage."
           )
     (input-schema +symbol+ +package+ +live+ +live-connection+)
   (multiple-value-bind (package name) (symbol-args args)
@@ -222,7 +220,7 @@ used, so nothing is interned."
                      (lambda (conn) (render-xrefs (repl:repl-find-definitions conn (qualified package name)))))))))
 
 (define-tool "source-find-references"
-    (args :description "References to a symbol in the project, defpackage designators included. live=true adds the image's xrefs.")
+    (args :description "References to a symbol, defpackage designators included.")
     (input-schema +symbol+ +package+ +live+ +live-connection+)
   (multiple-value-bind (package name) (symbol-args args)
     (let* ((sources (project-sources))
@@ -241,7 +239,7 @@ used, so nothing is interned."
                      (lambda (conn) (render-xrefs (repl:repl-xref conn :references (qualified package name)))))))))
 
 (define-tool "source-packages"
-    (args :description "Packages the project defines: nicknames, uses, exports, local nicknames, location.")
+    (args :description "Packages the project defines: nicknames, uses, exports, location.")
     (input-schema)
   (let* ((sources (project-sources))
          (packages (src:package-model-packages (project-model sources))))
