@@ -1,5 +1,14 @@
 (in-package #:lisp-mcp)
 
+(defvar *verbose* nil
+  "True while a tool call asked for verbose output (argument verbose=true), or
+when the server was started with --verbose / LISP_MCP_VERBOSE=1. Terse output
+drops hints, long backtraces, diffs of written edits and passing test lines.")
+
+(defvar *default-verbose* nil
+  "Server-wide default for *VERBOSE*.")
+
+
 ;;; Server state: the project root (every path is resolved inside it) and
 ;;; the named connections to live images.
 

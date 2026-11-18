@@ -91,3 +91,38 @@
       (ok (search "compile skipped: No live image"
                   (call "edit-replace" "path" "src/demo.lisp" "locator" "defun caller"
                         "code" "(defun caller () (frob 4))" "compile" t))))))
+
+(defun tool-schema-properties (name)
+  (let ((tool (gethash name (mcp:mcp-server-tools *server*))))
+    (gethash "properties" (mcp:mcp-tool-input-schema tool))))
+
+(deftest terse-by-default-verbose-on-request
+  (with-project (root)
+    (write-project-file root "src/demo.lisp" *demo*)
+    (testing "only tools with a verbose form carry the argument"
+      (ok (gethash "verbose" (tool-schema-properties "edit-replace")))
+      (ok (gethash "verbose" (tool-schema-properties "repl-eval")))
+      (ng (gethash "verbose" (tool-schema-properties "source-read"))))
+    (testing "a written edit reports its size, not the diff"
+      (let ((text (call "edit-replace" "path" "src/demo.lisp" "locator" "defun caller"
+                        "code" "(defun caller () (frob 5))")))
+        (ok (search "Wrote" text))
+        (ok (search "(+1 -1 lines)" text))
+        (ng (search "+(defun caller () (frob 5))" text))))
+    (testing "verbose=true and dry runs show the diff"
+      (ok (search "+(defun caller () (frob 6))"
+                  (call "edit-replace" "path" "src/demo.lisp" "locator" "defun caller"
+                        "code" "(defun caller () (frob 6))" "verbose" t)))
+      (ok (search "+(defun caller () (frob 7))"
+                  (call "edit-replace" "path" "src/demo.lisp" "locator" "defun caller"
+                        "code" "(defun caller () (frob 7))" "dry_run" t))))))
+
+(deftest passing-checks-are-dropped
+  (let ((text (format nil "suite~%  ✓ Expect (= 1 1) to be true.~%  ✓ Expect (EQUAL~%            X Y) to be true.~%  × Expect (= 1 2) to be true.~%      (= 1 2)~%Summary:~%  1 test failed.~%")))
+    (let ((out (lisp-mcp::drop-passing-checks text)))
+      (ok (search "suite" out))
+      (ok (search "× Expect (= 1 2)" out))
+      (ok (search "      (= 1 2)" out) "lines under a failure stay")
+      (ok (search "1 test failed" out))
+      (ng (search "✓" out))
+      (ng (search "X Y" out) "continuation of a passing check goes too"))))
