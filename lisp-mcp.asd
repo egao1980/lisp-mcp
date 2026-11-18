@@ -1,10 +1,10 @@
 (defsystem "lisp-mcp"
-  :version "0.4.1"
+  :version "0.5.0"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"
   :depends-on ("alexandria" "bordeaux-threads"
-               (:version "lisp-source-protocol" "0.2.3")
+               (:version "lisp-source-protocol" "0.2.4")
                (:version "repl-protocol" "0.2.6")
                (:version "repl-backend-swank" "0.2.2")
                (:version "repl-backend-slynk" "0.2.1")
@@ -46,7 +46,8 @@
                (:file "transport-test")
                (:file "output-test")
                (:file "repl-tools-test")
-               (:file "jobs-test"))
+               (:file "jobs-test")
+               (:file "groups-test"))
   :perform (test-op (o c)
              (unless (symbol-call :rove :run c)
                (error "tests failed for ~A" (component-name c)))))

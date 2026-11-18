@@ -33,9 +33,56 @@ drops hints, long backtraces, diffs of written edits and passing test lines.")
   ((message :initarg :message :reader bad-argument-message))
   (:report (lambda (c s) (write-string (bad-argument-message c) s))))
 
+;;; Tool groups: a server can offer a subset, so one binary runs as a
+;;; static code server and a live image server.
+
+(defparameter *tool-groups* '(:source :edit :output :repl :debug :inspect :jobs)
+  "Every tool group, in catalog order.")
+
+(defparameter *image-groups* '(:repl :debug :inspect :jobs)
+  "Groups that work on a live image; image resources, notifications and the
+image arguments of source and edit tools come with them.")
+
+(defparameter *tool-presets*
+  '(("all" :source :edit :output :repl :debug :inspect :jobs)
+    ("code" :source :edit :output)
+    ("image" :repl :debug :inspect :jobs :output))
+  "Names for common --tools selections.")
+
+(defun tool-group (name)
+  "Group of tool NAME, from its prefix."
+  (loop for (prefix . group) in '(("source-" . :source) ("edit-" . :edit) ("output-" . :output)
+                                  ("repl-" . :repl) ("debug-" . :debug) ("inspect" . :inspect)
+                                  ("job-" . :jobs))
+        when (alexandria:starts-with-subseq prefix name) return group
+        finally (error "Tool ~A has no group prefix" name)))
+
+(defun parse-tool-groups (spec)
+  "Groups selected by SPEC: NIL (all), a list of group keywords, or a comma
+list of group and preset names (\"code\", \"image\", \"all\", \"source,edit\")."
+  (flet ((unknown (what)
+           (error 'bad-argument
+                  :message (format nil "Unknown tool group ~S; use ~{~(~A~)~^, ~} or ~{~A~^, ~}"
+                                   what *tool-groups* (mapcar #'first *tool-presets*)))))
+    (let ((groups
+            (cond ((null spec) *tool-groups*)
+                  ((listp spec)
+                   (dolist (g spec spec) (unless (member g *tool-groups*) (unknown g))))
+                  (t (loop for part in (uiop:split-string spec :separator ",")
+                           for name = (string-trim " " part)
+                           unless (string= name "")
+                             append (or (rest (assoc name *tool-presets* :test #'string-equal))
+                                        (let ((g (find name *tool-groups* :test #'string-equal)))
+                                          (if g (list g) (unknown name)))))))))
+      (when (null groups) (unknown spec))
+      ;; catalog order, no duplicates
+      (remove-if-not (lambda (g) (member g groups)) *tool-groups*))))
+
 (defclass lisp-mcp-state ()
   ((root :initarg :root :accessor state-root
          :documentation "Directory pathname every tool path is resolved against.")
+   (tool-groups :initarg :tool-groups :initform *tool-groups* :reader state-tool-groups
+                :documentation "Tool groups this server offers (see *TOOL-GROUPS*).")
    (connections :initform (make-hash-table :test #'equal) :reader state-connections)
    (default :initform nil :accessor state-default-connection)
    (channels :initform (make-hash-table :test #'equal) :reader state-channels
@@ -54,8 +101,16 @@ drops hints, long backtraces, diffs of written edits and passing test lines.")
 
 (defvar *state* nil "The LISP-MCP-STATE of the running server.")
 
-(defun make-state (&key (root (uiop:getcwd)))
-  (make-instance 'lisp-mcp-state :root (uiop:ensure-directory-pathname (truename root))))
+(defun make-state (&key (root (uiop:getcwd)) tool-groups)
+  (make-instance 'lisp-mcp-state :root (uiop:ensure-directory-pathname (truename root))
+                                 :tool-groups (parse-tool-groups tool-groups)))
+
+(defun group-on-p (group &key (state *state*))
+  (and (member group (state-tool-groups state)) t))
+
+(defun image-tools-p (&key (state *state*))
+  "True when any live image group is on."
+  (and (intersection *image-groups* (state-tool-groups state)) t))
 
 (defun resolve-project-path (path &key (state *state*) (must-exist t))
   "Absolute pathname for PATH (relative to the root, or absolute inside it).

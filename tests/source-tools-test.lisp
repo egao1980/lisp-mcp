@@ -41,7 +41,7 @@
     (let ((check (call "source-check" "path" "broken.lisp" "rules" "none")))
       (ok (search "imbalance missing-close" check))
       (ok (search "suggested fix at 3:" check)))
-    (call "edit-repair" "path" "broken.lisp")
+    (call "edit-structure" "op" "repair" "path" "broken.lisp")
     (ok (search "clean" (call "source-check" "path" "broken.lisp" "rules" "none")))))
 
 (deftest structural-edits
@@ -66,7 +66,7 @@
       (ok error)
       (ok (search "re-read" text)))
     (call "edit-insert" "path" "src/demo.lisp" "locator" "defun caller" "code" "(defun added () :ok)")
-    (call "edit-wrap" "path" "src/demo.lisp" "locator" "path:3.3" "head" "progn")
+    (call "edit-structure" "op" "wrap" "path" "src/demo.lisp" "locator" "path:3.3" "head" "progn")
     (call "edit-rename-symbol" "symbol" "demo:frob" "new_name" "twiddle")
     (call "edit-add-export" "path" "src/demo.lisp" "package" "demo" "symbol" "added")
     (let ((text (uiop:read-file-string (merge-pathnames "src/demo.lisp" root))))
@@ -96,11 +96,11 @@
     (write-project-file root "src/demo.lisp" *demo*)
     (write-project-file root "src/other.lisp" (format nil "(in-package #:demo)~%~%(defun z () 0)~%"))
     ;; within a file
-    (call "edit-move" "path" "src/demo.lisp" "locator" "defun caller" "target_locator" "defun frob" "where" "before")
+    (call "edit-structure" "op" "move" "path" "src/demo.lisp" "locator" "defun caller" "target_locator" "defun frob" "where" "before")
     (let ((text (uiop:read-file-string (merge-pathnames "src/demo.lisp" root))))
       (ok (< (search "(defun caller" text) (search "(defun frob" text))))
     ;; across files: both are written, and both stay clean
-    (call "edit-move" "path" "src/demo.lisp" "locator" "defun caller" "target_path" "src/other.lisp"
+    (call "edit-structure" "op" "move" "path" "src/demo.lisp" "locator" "defun caller" "target_path" "src/other.lisp"
           "target_locator" "defun z")
     (ok (not (search "defun caller" (uiop:read-file-string (merge-pathnames "src/demo.lisp" root)))))
     (ok (search (format nil "(defun z () 0)~%~%(defun caller () (frob 2))")
@@ -140,3 +140,23 @@
     ;; a write from outside this server, same second, different length
     (write-project-file root "a.lisp" "(defun one () 1) (defun two () 2)")
     (ok (search "defun two" (call "source-outline" "path" "a.lisp")))))
+
+(deftest edit-structure-ops
+  (with-project (root)
+    (flet ((text () (uiop:read-file-string (merge-pathnames "s.lisp" root)))
+           (op (&rest kvs) (apply #'call "edit-structure" "path" "s.lisp" kvs)))
+      (write-project-file root "s.lisp" (format nil "(defun f () (a (b c) d))~%"))
+      (op "op" "slurp" "locator" "path:0.3.1")
+      (ok (search "(a (b c d))" (text)) "slurp forward")
+      (op "op" "barf" "locator" "path:0.3.1")
+      (ok (search "(a (b c) d)" (text)) "barf forward")
+      (op "op" "transpose" "locator" "path:0.3.1")
+      (ok (search "(a d (b c))" (text)) "transpose")
+      (op "op" "splice" "locator" "path:0.3.2")
+      (ok (search "(a d b c)" (text)) "splice")
+      (op "op" "raise" "locator" "path:0.3.1")
+      (ok (search "(defun f () d)" (text)) "raise")
+      (ok (signals (op "op" "twist" "locator" "path:0") 'mcp:mcp-error) "op is an enum")
+      (multiple-value-bind (msg error) (op "op" "wrap")
+        (ok error "wrap needs a locator")
+        (ok (search "locator" msg))))))

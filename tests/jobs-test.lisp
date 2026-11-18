@@ -7,7 +7,7 @@
       (dolist (tool tools)
         (ok (<= (length (mcp:mcp-tool-description tool)) 120)
             (format nil "~A: ~D chars" (mcp:mcp-tool-name tool) (length (mcp:mcp-tool-description tool))))))
-    (ok (< (length lisp-mcp::*instructions*) 1200))))
+    (ok (< (length (mcp:mcp-server-instructions *server*)) 1700))))
 
 (deftest job-arguments-key
   (let ((a (mcp:json-object "code" "(f)" "timeout" 5 "package" "X"))

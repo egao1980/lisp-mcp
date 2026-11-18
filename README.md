@@ -5,7 +5,7 @@ A Common Lisp [MCP](https://modelcontextprotocol.io) server with three layers. B
 | Layer | Library | What it gives an agent |
 |-------|---------|------------------------|
 | **Source** (read only) | [`lisp-source-protocol`](https://github.com/egao1980/lisp-source-protocol) | Outline, form text and file hash, read-check and lint, paren imbalances with a suggested fix, static definitions, references and packages. Never evaluates (`#.` refused) and never interns. |
-| **Edit** (structural) | same | Replace, insert, delete, wrap, splice, raise, slurp and barf, transpose, move (also across files), rename-symbol, add-export, repair, new-file. Inserted code is re-indented. Each write is re-read first and refused if it would unbalance the file or if `expected_hash` is stale. |
+| **Edit** (structural) | same | Replace, insert, delete; wrap, splice, raise, slurp and barf, transpose, move (also across files) and repair through `edit-structure`; rename-symbol, add-export, new-file. Inserted code is re-indented. Each write is re-read first and refused if it would unbalance the file or if `expected_hash` is stale. |
 | **Live image** | [`repl-protocol`](https://github.com/egao1980/repl-protocol) + [Swank](https://github.com/egao1980/repl-backend-swank) / [Slynk](https://github.com/egao1980/repl-backend-slynk) | Eval, compile (notes mapped to file positions), load-system, run-tests, debugger (a value, not a hang) with stepping, inspector, xref, threads, Slynk channels. The image is a separate process, so this server never runs project code. |
 
 ## Run
@@ -16,6 +16,7 @@ lisp-mcp --root ~/src/my-project         # stdio
 lisp-mcp --transport http --port 3000    # Streamable HTTP (loads lisp-mcp/http)
 lisp-mcp --spawn swank                   # start with a fresh SBCL+Swank image attached
 lisp-mcp --attach 127.0.0.1:4005         # or attach to your running SLIME / Sly (--backend slynk)
+lisp-mcp --tools code                    # only some tool groups (see Tool groups)
 ```
 
 You can set the root with `--root` or `MCP_PROJECT_ROOT`. Every path is resolved inside it.
@@ -35,19 +36,39 @@ ASDF registry. `+Q` keeps Quicklisp out: Roswell's `-Q` turns it on.
 { "mcpServers": { "lisp-mcp": { "command": "lisp-mcp", "args": ["--root", "."] } } }
 ```
 
+## Tool groups
+
+`--tools GROUPS` (or `LISP_MCP_TOOLS`) picks what a server offers: a comma list of `source`, `edit`, `output`, `repl`, `debug`, `inspect`, `jobs`, or the presets `code` (= `source,edit,output`), `image` (= `repl,debug,inspect,jobs,output`) and `all` (the default). The server instructions cover only the groups that are on. The image resources (`repl://…`) and the image log messages come with the image groups, `lisp-source://` with `source`, `lisp-output://` with `output`. Without an image group, the image arguments of the source and edit tools (`live`, `compile`, `connection`) are left out of their schemas.
+
+One binary then runs as two servers. An agent that loads only the static tools does not pay for the image ones:
+
+```json
+{ "mcpServers": {
+    "lisp-code":  { "command": "lisp-mcp", "args": ["--root", ".", "--tools", "code"] },
+    "lisp-image": { "command": "lisp-mcp", "args": ["--root", ".", "--tools", "image"] } } }
+```
+
+The two are separate processes: compile an edit with `repl-compile` on `lisp-image` (`compile: true` on an edit needs both groups in one server).
+
+**Catalog size.** `tools/list` is about 17 KB for all 56 tools (0.4.1: 35 KB for 63). Common arguments (`path`, `locator`, `expected_hash`, `dry_run`, `compile`, `connection`, `symbol`, `package`, `verbose`, ...) carry no description in the schemas. The server instructions explain them, and the locator syntax, once. The test suite keeps a budget for the whole catalog and for each group.
+
 Step-by-step sessions (edit → compile → debug → inspect): [cl-stack cookbook](https://github.com/egao1980/cl-stack/blob/main/docs/cookbooks/lisp-mcp.md).
 
 ## Tools
 
 - **source:** `source-outline`, `source-read`, `source-check`, `source-find-definitions`, `source-find-references`, `source-packages`
-- **edit:** `edit-replace`, `edit-insert`, `edit-delete`, `edit-wrap`, `edit-splice`, `edit-raise`, `edit-slurp`, `edit-barf`, `edit-transpose`, `edit-move`, `edit-rename-symbol`, `edit-add-export`, `edit-repair`, `edit-new-file`
+- **edit:** `edit-replace`, `edit-insert`, `edit-delete`, `edit-structure`, `edit-rename-symbol`, `edit-add-export`, `edit-new-file`
 - **repl:** `repl-spawn`, `repl-connect`, `repl-list`, `repl-disconnect`, `repl-eval`, `repl-compile`, `repl-load-system`, `repl-run-tests`, `repl-interrupt`, `repl-output`, `repl-describe`, `repl-documentation`, `repl-arglist`, `repl-apropos`, `repl-complete`, `repl-macroexpand`, `repl-xref`, `repl-find-definitions`, `repl-threads`, `repl-channel-open`, `repl-channel-list`, `repl-channel-close`
 - **debugger:** `debug-state`, `debug-backtrace`, `debug-frame-locals`, `debug-frame-source`, `debug-eval-in-frame`, `debug-step`, `debug-invoke-restart`, `debug-return-from-frame`, `debug-restart-frame`
 - **inspector:** `inspect`, `inspect-part`, `inspect-action`, `inspect-back`, `inspect-condition`, `inspect-frame-var`, `inspect-history`
 - **output:** `output-read`
 - **jobs:** `job-list`, `job-status`, `job-wait`, `job-cancel`
 
-Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`. Read-only tools carry `readOnlyHint`; tools that write files or run code carry `destructiveHint`.
+`edit-structure` takes an `op`: `wrap` (`head`, e.g. `"when (ready-p)"`; empty gives `(FORM)`), `splice`, `raise`, `slurp` / `barf` (`direction` `forward` or `backward`), `transpose`, `move` (`target_locator`, optional `target_path`, `where`, `target_expected_hash`; both files are verified before either is written) and `repair` (`index` of the imbalance from `source-check`; no locator).
+
+**Breaking change in 0.5.0.** `edit-wrap`, `edit-splice`, `edit-raise`, `edit-slurp`, `edit-barf`, `edit-transpose`, `edit-move` and `edit-repair` are gone: call `edit-structure` with `op` set to `wrap`, `splice`, `raise`, `slurp`, `barf`, `transpose`, `move` or `repair` and the same other arguments.
+
+Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`. Read-only tools carry `readOnlyHint`; tools that write files or run code carry no annotations (the MCP defaults: not read-only, destructive).
 
 **Hybrid answers.** `source-outline`, `source-find-definitions` and `source-find-references` take `live: true`: the static answer is kept, and the connected image adds what only it knows (which definitions are loaded, macro-generated definitions, who-calls / who-references through macros), marked `[image]`.
 

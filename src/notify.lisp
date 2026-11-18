@@ -52,11 +52,13 @@ or a list whose &BODY marks the body."
   (setf (cache-indentation-generation (state-cache)) -1))
 
 (defun connection-listener (name)
-  "Event listener for connection NAME: turns image events into MCP notifications."
-  (let ((server *server*) (state *state*))
+  "Event listener for connection NAME: turns image events into MCP notifications
+(only when the server offers an image group; indentation hints are kept anyway)."
+  (let* ((server *server*) (state *state*)
+         (notify (image-tools-p :state state)))
     (lambda (kind data)
       (let ((*server* server) (*state* state))
-        (case kind
+        (case (if (or notify (eq kind :indentation)) kind :ignored)
           (:output
            (mcp:notify-resources-updated server (output-uri name))
            (notify-log "info" (format nil "repl/~A" name) "~A" data))

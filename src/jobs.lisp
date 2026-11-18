@@ -126,9 +126,10 @@ restart unwinds to here, and the condition goes to whoever waits for the job
       (notify-log (if condition "warning" "notice") "lisp-mcp/jobs"
                   "Job ~A ~:[finished~;failed~] after ~D s: ~A~%~A"
                   (job-id job) condition (job-seconds job) (job-summary job)
-                  (first-lines (job-result job) 3)))))
+                  (job-result-head (job-result job) 3)))))
 
-(defun first-lines (text n)
+(defun job-result-head (text n)
+  "The first N lines of TEXT, with a note when there are more."
   (let ((lines (uiop:split-string (string-right-trim '(#\Newline) text) :separator '(#\Newline))))
     (format nil "~{~A~^~%~}~:[~;~%… (job-status for the rest)~]"
             (subseq lines 0 (min n (length lines))) (> (length lines) n))))
@@ -210,7 +211,7 @@ with the same tool and arguments is not started again."
     (when entry
       (setf (gethash "timeout" (gethash "properties" schema))
             (mcp:json-object "type" "integer"
-                             "description" (format nil "Seconds before it continues as a job (default ~D)" (cdr entry))))))
+                             "description" (format nil "Default ~D s" (cdr entry))))))
   schema)
 
 ;;; Tools
@@ -225,7 +226,7 @@ with the same tool and arguments is not started again."
         (format s "Still running; job-wait blocks until it is done, job-cancel interrupts it.~%")
         (write-string (job-result job) s))))
 
-(define-tool "job-list" (args :description "Background jobs (long repl-* calls): id, state, seconds, tool and arguments.")
+(define-tool "job-list" (args :description "Background jobs: id, state, seconds, tool, arguments.")
     (input-schema)
   (let ((jobs (bt2:with-lock-held ((state-lock *state*)) (copy-list (state-jobs *state*)))))
     (if jobs
@@ -233,19 +234,19 @@ with the same tool and arguments is not started again."
         (format nil "No jobs~%"))))
 
 (define-tool "job-status" (args :description "State of a background job, with its result once it is done.")
-    (input-schema '("id" "string" "Job id (jN)" :required t))
+    (input-schema '("id" "string" nil :required t))
   (render-job (find-job (require-arg args "id"))))
 
-(define-tool "job-wait" (args :description "Wait (bounded) for a background job to finish; returns its status and result.")
-    (input-schema '("id" "string" "Job id (jN)" :required t)
-                  '("timeout" "integer" "Seconds to wait (default 60, at most 300)"))
+(define-tool "job-wait" (args :description "Wait (bounded) for a job; returns its status and result.")
+    (input-schema '("id" "string" nil :required t)
+                  '("timeout" "integer" "Default 60, at most 300"))
   (let ((job (find-job (require-arg args "id"))))
     (await-job job (min *job-wait-limit* (max 1 (arg-int args "timeout" 60))))
     (render-job job)))
 
-(define-tool "job-cancel" (args :description "Interrupt a running job's evaluation (repl-interrupt); it then reports the debugger state."
+(define-tool "job-cancel" (args :description "Interrupt a running job; it then reports the debugger state."
                                 :kind :write)
-    (input-schema '("id" "string" "Job id (jN)" :required t))
+    (input-schema '("id" "string" nil :required t))
   (let ((job (find-job (require-arg args "id"))))
     (cond ((not (job-running-p job))
            (format nil "Job ~A is not running (~(~A~))~%" (job-id job) (job-state job)))

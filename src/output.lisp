@@ -163,8 +163,7 @@ naming the stored id and how to read the rest."
   "SCHEMA with the verbose argument when tool NAME has a verbose form."
   (when (verbose-tool-p name)
     (setf (gethash "verbose" (gethash "properties" schema))
-          (mcp:json-object "type" "boolean"
-                           "description" "Full detail: diffs, whole backtrace, hints")))
+          (mcp:json-object "type" "boolean")))
   schema)
 
 ;;; Reading stored output
@@ -236,12 +235,12 @@ matches marked :, CONTEXT lines around them marked -, groups split by --."
                    (return)))))))
 
 (define-tool "output-read"
-    (args :description "Read a cut-short result by id (oN): page with offset/limit or search with grep. No id lists them.")
-    (input-schema '("id" "string" "Stored output id, from a cut-short result")
-                  '("offset" "integer" "First line, 1-based (default 1)")
-                  '("limit" "integer" "Lines to return (default 100)")
-                  '("grep" "string" "Only lines containing this text (case-insensitive; | separates alternatives)")
-                  '("context" "integer" "Lines shown around each grep match (default 2)"))
+    (args :description "Read a stored result (oN) by offset/limit or grep. No id lists them.")
+    (input-schema '("id" "string" nil)
+                  '("offset" "integer" "Default 1")
+                  '("limit" "integer" "Default 100")
+                  '("grep" "string" "Matching lines only (case-insensitive; a|b)")
+                  '("context" "integer" "Default 2"))
   (let ((id (arg-string args "id")))
     (if (null id)
         (render-output-list)
