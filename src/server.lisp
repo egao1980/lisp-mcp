@@ -73,7 +73,7 @@ Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subs
   (let ((tool (find name *tools* :key #'first :test #'string=)))
     (funcall (fifth tool) args)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.4.0"))
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.4.1"))
   "MCP server with every lisp-mcp tool and resource, rooted at ROOT. Binds
 *STATE* and *SERVER*."
   (setf *state* (make-state :root root))
