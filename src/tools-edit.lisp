@@ -4,11 +4,11 @@
 ;;; it would add a reader error or paren imbalance.
 
 (defparameter +expected-hash+
-  '("expected_hash" "string" "File hash from source-read/source-outline; the edit is refused if the file changed since"))
+  '("expected_hash" "string" "File hash from source-read; refused if the file changed"))
 (defparameter +dry-run+ '("dry_run" "boolean" "Show the diff without writing"))
 
 (defparameter +compile+
-  '("compile" "boolean" "After writing, compile the changed top-level forms in the live image and append its compiler notes"))
+  '("compile" "boolean" "Compile the changed forms in the image; append its notes"))
 (defparameter +edit-connection+ '("connection" "string" "Image for compile=true (default: the most recent)"))
 
 (defun squeeze-space (string)
@@ -99,7 +99,7 @@ becomes a BAD-ARGUMENT with a retry hint; compile=true appends compiler notes."
          (commit (indented-for-project (lambda () ,@plan-form)) ,args name :node ,node)))))
 
 (define-node-edit "edit-replace"
-    "Replace one form with new code. The code must read as exactly one balanced form; continuation lines are re-indented to the form's column."
+    "Replace one form with new code (exactly one balanced form; re-indented)."
     (parsed node args) ('("code" "string" "Replacement form" :required t))
   (src:replace-node parsed node (require-arg args "code")))
 
@@ -140,7 +140,7 @@ becomes a BAD-ARGUMENT with a retry hint; compile=true appends compiler notes."
   (src:transpose-nodes parsed node))
 
 (define-tool "edit-move"
-    (args :description "Move a form before or after another form, in the same file or another one (target_path). Both files are verified before either is written."
+    (args :description "Move a form next to another one, in this file or target_path. Both files are verified before writing."
           :kind :write)
     (input-schema +path+ +locator+
                   '("target_locator" "string" "Form to move next to (same syntax as locator)" :required t)
@@ -171,7 +171,7 @@ becomes a BAD-ARGUMENT with a retry hint; compile=true appends compiler notes."
             (write-string (commit (second plans) args target-name :hash-arg "target_expected_hash") s)))))))
 
 (define-tool "edit-repair"
-    (args :description "Apply the suggested fix of a paren imbalance reported by source-check (insert missing closers, delete an early/stray one, close a string). Accepted only if the problem count drops."
+    (args :description "Apply source-check's fix for a paren imbalance; kept only if the problem count drops."
           :kind :write)
     (input-schema +path+ '("index" "integer" "Which imbalance (0-based, default 0)") +expected-hash+ +dry-run+
                   +compile+ +edit-connection+)
@@ -182,7 +182,7 @@ becomes a BAD-ARGUMENT with a retry hint; compile=true appends compiler notes."
       (commit (src:repair-parens parsed :imbalance imbalance) args name))))
 
 (define-tool "edit-rename-symbol"
-    (args :description "Rename a symbol everywhere it resolves (project or one file), keeping package prefixes and case style, including defpackage designators. Verifies every file."
+    (args :description "Rename a symbol where it resolves (project or one file), defpackage designators included. Verifies every file."
           :kind :write)
     (input-schema +symbol+ +package+ '("new_name" "string" "New symbol name" :required t)
                   '("path" "string" "Limit to this file (default: whole project)") +dry-run+)

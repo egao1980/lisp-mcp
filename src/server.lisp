@@ -1,12 +1,12 @@
 (in-package #:lisp-mcp)
 
 (defparameter *instructions*
-  "Common Lisp tools with three layers.
-SOURCE (read only, never evaluates): source-outline → source-read (form text + file hash) → source-check (reader errors, paren imbalances with fix positions, lint) → source-find-definitions / source-find-references / source-packages. live=true merges answers from the connected image.
-EDIT (structural, never unbalanced): edit-replace / edit-insert / edit-delete / edit-wrap / edit-splice / edit-raise / edit-slurp / edit-barf / edit-transpose / edit-move / edit-rename-symbol / edit-add-export / edit-repair / edit-new-file. Address forms with a locator (\"defun foo\", \"path:0.2\", \"line:12\"); pass expected_hash from source-read; dry_run shows the diff. Inserted code is re-indented. Do not write .lisp files any other way.
-LIVE IMAGE (Swank/Slynk, separate process): repl-spawn or repl-connect first, then repl-eval / repl-compile (notes mapped to file positions) / repl-load-system / repl-run-tests. An error returns the debugger state instead of hanging: use debug-backtrace, debug-frame-locals, debug-eval-in-frame, debug-step, inspect-condition, then debug-invoke-restart. inspect / inspect-part walk values (repl-eval prints a result id). With Slynk, repl-channel-open gives extra REPLs with #v value history.
-LONG OUTPUT: a result over the size limit shows its head and tail and a note naming a stored id (o1, o2, …); read the rest with output-read (offset/limit pages, grep searches) or lisp-output://{id} resources instead of re-running the tool.
-RESOURCES: lisp-source:///{path} (outline), repl://{connection}/output and repl://{connection}/debugger (subscribe for updates), repl://connections. Image output and debugger entries are also sent as log messages.")
+  "Common Lisp tools. SOURCE (static, never evaluates): source-outline, then source-read (form + file hash), source-check, source-find-*.
+EDIT (structural, never unbalanced; the only way to write .lisp): edit-*. Locator \"defun foo\" / \"path:0.2\" / \"line:12\"; pass expected_hash; dry_run shows the diff.
+LIVE (Swank/Slynk image): repl-spawn or repl-connect, then repl-eval / repl-compile / repl-load-system / repl-run-tests. An error returns the debugger state: debug-backtrace, debug-frame-locals, inspect-condition, debug-invoke-restart.
+JOBS: a call that outlasts its timeout keeps running as job jN. Do not start it again; wait for the log message or call job-status / job-wait; job-cancel interrupts it.
+LONG OUTPUT: a cut-short result names a stored id oN; read it with output-read (offset, grep) instead of re-running.
+Resources: lisp-source:///{path}, repl://{connection}/output and /debugger (subscribable), lisp-output://{id}.")
 
 (defun resource-text (thunk)
   "Run THUNK for a resource read; this server's errors become MCP errors."
@@ -73,7 +73,7 @@ RESOURCES: lisp-source:///{path} (outline), repl://{connection}/output and repl:
   (let ((tool (find name *tools* :key #'first :test #'string=)))
     (funcall (fifth tool) args)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.3.2"))
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.4.0"))
   "MCP server with every lisp-mcp tool and resource, rooted at ROOT. Binds
 *STATE* and *SERVER*."
   (setf *state* (make-state :root root))
@@ -85,9 +85,9 @@ RESOURCES: lisp-source:///{path} (outline), repl://{connection}/output and repl:
       (destructuring-bind (tool-name description schema annotations handler) tool
         (mcp:register-tool server
                            (mcp:make-mcp-tool tool-name :description description
-                                                        :input-schema (add-verbose-argument tool-name schema)
+                                                        :input-schema (add-job-argument tool-name (add-verbose-argument tool-name schema))
                                                         :annotations annotations
-                                                        :handler (bounded-handler tool-name handler)))))
+                                                        :handler (bounded-handler tool-name (if (job-tool-p tool-name) (job-handler tool-name handler) handler))))))
     (register-resources server)
     (register-output-resources server)
     server))

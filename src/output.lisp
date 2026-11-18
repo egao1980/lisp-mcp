@@ -27,8 +27,9 @@ argument (the others would only pay for it in the tool list).")
   "Longer lines are cut in returned text; the store keeps them whole.")
 (defvar *output-store-size* 64
   "Stored outputs kept; older ones are dropped.")
-(defparameter *unbounded-tools* '("output-read")
-  "Tools whose results are never stored: they page by themselves.")
+(defparameter *unbounded-tools* '("output-read" "job-status" "job-wait")
+  "Tools whose results are never stored: they page by themselves, or show a
+job result that was bounded when the job finished.")
 
 (defun env-integer (name)
   (let ((v (uiop:getenv name)))
@@ -235,7 +236,7 @@ matches marked :, CONTEXT lines around them marked -, groups split by --."
                    (return)))))))
 
 (define-tool "output-read"
-    (args :description "Read a tool result that was cut short; its note names the id (e.g. o3). Page with offset/limit, or search with grep (only matching lines, with context). No id lists stored outputs.")
+    (args :description "Read a cut-short result by id (oN): page with offset/limit or search with grep. No id lists them.")
     (input-schema '("id" "string" "Stored output id, from a cut-short result")
                   '("offset" "integer" "First line, 1-based (default 1)")
                   '("limit" "integer" "Lines to return (default 100)")

@@ -30,11 +30,11 @@
 ;;; Lifecycle
 
 (define-tool "repl-spawn"
-    (args :description "Start a fresh SBCL image (via `ros +Q run`, no Quicklisp; Swank/Slynk load with ASDF from the cl-repo install tree) serving Swank or Slynk on localhost and connect to it. The image runs the project's code; this server never evaluates it."
+    (args :description "Start a fresh SBCL image (ros +Q run) serving Swank or Slynk on localhost, and connect to it."
           :kind :write)
     (input-schema '("backend" "string" "swank (default) or slynk" :enum ("swank" "slynk"))
                   '("name" "string" "Connection name")
-                  '("command" "string" "Image command prefix, whitespace separated (default: ros +Q run --)"))
+                  '("command" "string" "Image command prefix (default: ros +Q run --)"))
   (let* ((backend (backend-named (arg-string args "backend")))
          (command (let ((c (arg-string args "command")))
                     (if c (uiop:split-string c :separator " ") repl:*default-image-command*)))
@@ -78,9 +78,9 @@
 ;;; Evaluation
 
 (define-tool "repl-eval"
-    (args :description "Evaluate code in the image. Returns printed values and output, or the debugger state (condition, restarts, backtrace) if it signals; then use debug-* tools. With channel (from repl-channel-open), it runs in that REPL: its own thread, package and #v<entry>:<index> value history."
+    (args :description "Evaluate code in the image: values and output, or the debugger state. channel runs it in a Slynk REPL."
           :kind :write)
-    (input-schema +code+ +package+ +connection+ '("timeout" "integer" "Seconds to wait (default 60)")
+    (input-schema +code+ +package+ +connection+
                   '("channel" "string" "Channel name from repl-channel-open (Slynk)"))
   (let ((channel (arg-string args "channel")))
     (if channel
@@ -90,7 +90,7 @@
                                      :package (arg-string args "package") :timeout (timeout args))))))
 
 (define-tool "repl-channel-open"
-    (args :description "Open a separate REPL in the image (Slynk mrepl): its own thread, package and value history. Pass its name as channel to repl-eval; results show #v<entry>:<index> references usable in later code."
+    (args :description "Open a Slynk REPL (own thread, package, #v value history); pass its name as channel to repl-eval."
           :kind :write)
     (input-schema +connection+ '("package" "string" "Initial package") '("name" "string" "Channel name"))
   (let* ((c (conn args))
@@ -121,7 +121,7 @@
                  (state-channels *state*)))))
 
 (define-tool "repl-compile"
-    (args :description "Compile in the image. With a locator: that form, with compiler notes mapped to file positions. Without: compile-file and load the whole file."
+    (args :description "Compile a form (locator) or compile-file and load the whole file; notes map to file positions."
           :kind :write)
     (input-schema +path+ '("locator" "string" "Form to compile (see source-read); omit for the whole file") +connection+)
   (multiple-value-bind (parsed name) (read-project-file (require-arg args "path"))
@@ -142,7 +142,7 @@
 
 (define-tool "repl-load-system"
     (args :description "asdf:load-system in the image." :kind :write)
-    (input-schema '("system" "string" "ASDF system name" :required t) +connection+ '("timeout" "integer" "Seconds (default 300)"))
+    (input-schema '("system" "string" "ASDF system name" :required t) +connection+)
   (let ((repl:*repl-timeout* (or (arg-int args "timeout") 300))
         (system (require-arg args "system")))
     (progress 0 1 "Loading ~A" system)
@@ -151,7 +151,7 @@
 
 (define-tool "repl-run-tests"
     (args :description "asdf:test-system in the image; returns output and result (or the debugger)." :kind :write)
-    (input-schema '("system" "string" "ASDF system name" :required t) +connection+ '("timeout" "integer" "Seconds (default 600)"))
+    (input-schema '("system" "string" "ASDF system name" :required t) +connection+)
   (let ((system (require-arg args "system")))
     (progress 0 1 "Testing ~A" system)
     (prog1 (render-eval (repl:repl-eval (conn args) (format nil "(asdf:test-system ~S)" system)
@@ -164,7 +164,7 @@
   (repl:repl-interrupt (conn args))
   (format nil "Interrupt sent; the pending repl-eval returns the debugger state.~%"))
 
-(define-tool "repl-output" (args :description "Output the image wrote outside eval results (other threads, logging); clears the buffer.")
+(define-tool "repl-output" (args :description "Output the image wrote outside eval results (other threads, logging); clears it.")
     (input-schema +connection+)
   (let ((text (repl:repl-output (conn args) :clear t)))
     (if (plusp (length text)) text (format nil "(no output)~%"))))
@@ -197,7 +197,7 @@
   (repl:repl-macroexpand (conn args) (require-arg args "code") :package (arg-string args "package")
                                                                :all (arg-bool args "all")))
 
-(define-tool "repl-xref" (args :description "Cross references from the image: who calls / references / binds / sets / macroexpands / specializes a symbol.")
+(define-tool "repl-xref" (args :description "Image xrefs: who calls / references / binds / sets / macroexpands / specializes a symbol.")
     (input-schema '("type" "string" "Relation" :required t :enum ("calls" "references" "binds" "sets" "macroexpands" "specializes"))
                   +symbol+ +package+ +connection+)
   (let ((type (find (require-arg args "type") '(:calls :references :binds :sets :macroexpands :specializes)
@@ -251,7 +251,7 @@
         (format nil "=> ~A~%" (string-trim '(#\Newline #\Space) (princ-to-string v))))))
 
 (define-tool "debug-invoke-restart"
-    (args :description "Invoke a restart by index; returns how the interrupted evaluation finished (values, abort, or a new debugger level)."
+    (args :description "Invoke a restart by index; returns how the evaluation ends (values, abort or a new debugger level)."
           :kind :write)
     (input-schema '("restart" "integer" "Restart index" :required t) +connection+)
   (handler-case (render-eval (repl:repl-invoke-restart (conn args) (arg-int args "restart")))
@@ -259,7 +259,7 @@
       (error 'bad-argument :message (princ-to-string e)))))
 
 (define-tool "debug-step"
-    (args :description "Stepper: continue from a frame stepping into calls (into), over them (next) or out of the frame (out). Enter the stepper with (step form) on code compiled with (debug 3). Returns the next stop or the final result."
+    (args :description "Step from a frame: into, next or out. Enter with (step form) on (debug 3) code. Returns the next stop or result."
           :kind :write)
     (input-schema '("frame" "integer" "Frame index (default 0)")
                   '("mode" "string" "into (default), next or out" :enum ("into" "next" "out")) +connection+)
@@ -270,7 +270,7 @@
                                              (t :into))))))
 
 (define-tool "inspect-history"
-    (args :description "Inspect value index (default 0) of history entry in a channel (the #v<entry>:<index> shown by repl-eval with channel)."
+    (args :description "Inspect #v<entry>:<index> of a channel's value history."
           :kind :write)
     (input-schema '("channel" "string" "Channel name" :required t) '("entry" "integer" "History entry" :required t)
                   '("index" "integer" "Value index (default 0)"))
@@ -288,7 +288,7 @@
 ;;; Inspector
 
 (define-tool "inspect"
-    (args :description "Inspect a value: either code to evaluate, or the result id printed by repl-eval (with index for multiple values)."
+    (args :description "Inspect a value: code to evaluate, or a result id from repl-eval."
           :kind :write)
     (input-schema '("code" "string" "Expression to evaluate and inspect")
                   '("result" "integer" "Result id from repl-eval")
