@@ -7,9 +7,21 @@
 ;;; a search at a time, so a long build log, test run or printed value costs
 ;;; tokens only for the part that is asked for.
 
-(defvar *max-output-lines* 200
+(defparameter *verbose-factor* 4
+  "Verbose calls may return this many times the output limits.")
+
+(defparameter *verbose-tool-prefixes*
+  '("edit-" "repl-eval" "repl-compile" "repl-load-system" "repl-run-tests"
+    "debug-" "inspect")
+  "Tools whose output has a terse and a verbose form; they get the verbose
+argument (the others would only pay for it in the tool list).")
+
+(defun verbose-tool-p (name)
+  (some (lambda (p) (alexandria:starts-with-subseq p name)) *verbose-tool-prefixes*))
+
+(defvar *max-output-lines* 120
   "Lines a tool result may have before it is cut and stored.")
-(defvar *max-output-chars* 16000
+(defvar *max-output-chars* 10000
   "Characters a tool result may have before it is cut and stored.")
 (defvar *max-line-chars* 2000
   "Longer lines are cut in returned text; the store keeps them whole.")
@@ -22,7 +34,7 @@
   (let ((v (uiop:getenv name)))
     (and v (parse-integer v :junk-allowed t))))
 
-(defun configure-output-limits (&key lines chars store)
+(defun configure-output-limits (&key lines chars store verbose)
   "Set the output limits from LINES / CHARS / STORE (integers or numeric
 strings), else from LISP_MCP_MAX_OUTPUT_LINES, LISP_MCP_MAX_OUTPUT_CHARS and
 LISP_MCP_OUTPUT_STORE_SIZE. Read at server start, not at build time."
@@ -33,7 +45,11 @@ LISP_MCP_OUTPUT_STORE_SIZE. Read at server start, not at build time."
              (if (and v (plusp v)) v current))))
     (setf *max-output-lines* (pick lines "LISP_MCP_MAX_OUTPUT_LINES" *max-output-lines*)
           *max-output-chars* (pick chars "LISP_MCP_MAX_OUTPUT_CHARS" *max-output-chars*)
-          *output-store-size* (pick store "LISP_MCP_OUTPUT_STORE_SIZE" *output-store-size*))))
+          *output-store-size* (pick store "LISP_MCP_OUTPUT_STORE_SIZE" *output-store-size*)
+          *default-verbose* (cond (verbose (not (json-false-p verbose)))
+                                  ((uiop:getenv "LISP_MCP_VERBOSE")
+                                   (not (json-false-p (uiop:getenv "LISP_MCP_VERBOSE"))))
+                                  (t *default-verbose*)))))
 
 (defclass stored-output ()
   ((id :initarg :id :reader output-id)
@@ -119,9 +135,13 @@ naming the stored id and how to read the rest."
           (with-text (s)
             (dolist (i head) (write-line (clip-line (svref lines i)) s))
             (if (< after gap-end)
-                (format s "[… lines ~D-~D of ~D not shown (~D chars in all). Stored as ~A: output-read id=~A offset=~D pages on, grep=\"text\" searches; resource lisp-output://~A]~%"
+                (format s (if *verbose*
+                              "[… lines ~D-~D of ~D not shown (~D chars in all). Stored as ~A: output-read id=~A offset=~D pages on, grep=\"text\" searches; resource lisp-output://~A]~%"
+                              "[… lines ~D-~D of ~D cut (~D chars). Stored as ~A: output-read id=~A offset=~D or grep=…~*]~%")
                         (1+ after) gap-end n (length text) id id (1+ after) id)
-                (format s "[long lines cut. Full text stored as ~A: output-read id=~A; resource lisp-output://~A]~%"
+                (format s (if *verbose*
+                              "[long lines cut. Full text stored as ~A: output-read id=~A; resource lisp-output://~A]~%"
+                              "[long lines cut. Stored as ~A: output-read id=~A~*]~%")
                         id id id))
             (dolist (i tail) (write-line (clip-line (svref lines i)) s)))))))
 
@@ -130,8 +150,21 @@ naming the stored id and how to read the rest."
   (if (member name *unbounded-tools* :test #'string=)
       handler
       (lambda (args)
-        (let ((result (funcall handler args)))
+        (let* ((*verbose* (arg-bool args "verbose" *default-verbose*))
+               (*max-output-lines* (if *verbose* (* *verbose-factor* *max-output-lines*)
+                                       *max-output-lines*))
+               (*max-output-chars* (if *verbose* (* *verbose-factor* *max-output-chars*)
+                                       *max-output-chars*))
+               (result (funcall handler args)))
           (if (stringp result) (bound-output name result) result)))))
+
+(defun add-verbose-argument (name schema)
+  "SCHEMA with the verbose argument when tool NAME has a verbose form."
+  (when (verbose-tool-p name)
+    (setf (gethash "verbose" (gethash "properties" schema))
+          (mcp:json-object "type" "boolean"
+                           "description" "Full detail: diffs, whole backtrace, hints")))
+  schema)
 
 ;;; Reading stored output
 

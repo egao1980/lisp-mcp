@@ -73,7 +73,7 @@ RESOURCES: lisp-source:///{path} (outline), repl://{connection}/output and repl:
   (let ((tool (find name *tools* :key #'first :test #'string=)))
     (funcall (fifth tool) args)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.3.1"))
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.3.2"))
   "MCP server with every lisp-mcp tool and resource, rooted at ROOT. Binds
 *STATE* and *SERVER*."
   (setf *state* (make-state :root root))
@@ -84,7 +84,8 @@ RESOURCES: lisp-source:///{path} (outline), repl://{connection}/output and repl:
     (dolist (tool (reverse *tools*))
       (destructuring-bind (tool-name description schema annotations handler) tool
         (mcp:register-tool server
-                           (mcp:make-mcp-tool tool-name :description description :input-schema schema
+                           (mcp:make-mcp-tool tool-name :description description
+                                                        :input-schema (add-verbose-argument tool-name schema)
                                                         :annotations annotations
                                                         :handler (bounded-handler tool-name handler)))))
     (register-resources server)

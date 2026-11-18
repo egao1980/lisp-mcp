@@ -62,27 +62,47 @@ image defines it), NIL (it does not) or :UNKNOWN."
 
 (defun render-edit-result (result name)
   (with-text (s)
-    (format s "~:[Dry run, nothing written to~;Wrote~] ~A: ~(~A~); new file hash ~A~%"
+    (format s "~:[Dry run, nothing written to~;Wrote~] ~A: ~(~A~); new file hash ~A"
             (src:edit-result-written-p result) name
             (src:edit-plan-operation (src:edit-result-plan result))
             (src:parsed-source-hash (src:edit-result-parsed result)))
-    (write-string (src:edit-result-diff result) s)))
+    (if (or *verbose* (not (src:edit-result-written-p result)))
+        (format s "~%~A" (src:edit-result-diff result))
+        ;; The caller sent the code; a written edit only needs its size.
+        (multiple-value-bind (added removed) (diff-line-counts (src:edit-result-diff result))
+          (format s " (+~D -~D lines)~%" added removed)))))
+
+(defun diff-line-counts (diff)
+  "→ (values added removed) lines of unified DIFF."
+  (let ((added 0) (removed 0))
+    (dolist (line (uiop:split-string diff :separator '(#\Newline)))
+      (cond ((or (alexandria:starts-with-subseq "+++" line)
+                 (alexandria:starts-with-subseq "---" line)))
+            ((alexandria:starts-with-subseq "+" line) (incf added))
+            ((alexandria:starts-with-subseq "-" line) (incf removed))))
+    (values added removed)))
 
 ;;; Live image
 
+(defparameter *terse-frames* 4
+  "Backtrace frames a terse debugger report shows.")
+
 (defun render-debugger (state)
   (with-text (s)
-    (format s "DEBUGGER level ~D (thread ~A): ~A~@[ [~A]~]~%Restarts:~%"
-            (repl:debugger-state-level state) (repl:debugger-state-thread state)
+    (format s "DEBUGGER level ~D~:[~*~; (thread ~A)~]: ~A~@[ [~A]~]~%Restarts:~%"
+            (repl:debugger-state-level state) *verbose* (repl:debugger-state-thread state)
             (repl:debugger-state-condition state) (repl:debugger-state-condition-type state))
     (dolist (r (repl:debugger-state-restarts state))
       (format s "  ~D: [~A] ~A~%" (repl:restart-info-index r) (repl:restart-info-name r)
               (repl:restart-info-description r)))
-    (format s "Backtrace:~%")
-    (dolist (f (subseq (repl:debugger-state-frames state)
-                       0 (min 12 (length (repl:debugger-state-frames state)))))
-      (format s "  ~D: ~A~%" (repl:frame-info-index f) (repl:frame-info-description f)))
-    (format s "Next: debug-invoke-restart, debug-frame-locals, debug-eval-in-frame, inspect-condition.~%")))
+    (let* ((frames (repl:debugger-state-frames state))
+           (shown (min (if *verbose* 12 *terse-frames*) (length frames))))
+      (format s "Backtrace~:[~*~; (top ~D; debug-backtrace for more)~]:~%"
+              (< shown (length frames)) shown)
+      (dolist (f (subseq frames 0 shown))
+        (format s "  ~D: ~A~%" (repl:frame-info-index f) (repl:frame-info-description f))))
+    (when *verbose*
+      (format s "Next: debug-invoke-restart, debug-frame-locals, debug-eval-in-frame, inspect-condition.~%"))))
 
 (defun strip-ansi (text)
   "TEXT without ANSI CSI escape sequences (Rove colours its report)."
@@ -120,9 +140,10 @@ image defines it), NIL (it does not) or :UNKNOWN."
         ((repl:eval-result-aborted-p result)
          (format nil "Aborted~@[: ~A~]~%" (repl:eval-result-reason result)))
         (t (with-text (s)
-             (let ((out (if quiet
-                            (quiet-build-output (repl:eval-result-output result))
-                            (repl:eval-result-output result))))
+             (let ((out (cond ((not quiet) (repl:eval-result-output result))
+                              (*verbose* (quiet-build-output (repl:eval-result-output result)))
+                              (t (drop-passing-checks
+                                  (quiet-build-output (repl:eval-result-output result)))))))
                (when (plusp (length out)) (format s "Output:~%~A~&" out)))
              (cond ((and (repl:eval-result-values result) (repl:eval-result-entry result))
                     (loop for v in (repl:eval-result-values result)
@@ -132,8 +153,24 @@ image defines it), NIL (it does not) or :UNKNOWN."
                     (format s "=> ~{~A~^~%=> ~}~%" (repl:eval-result-values result)))
                    (t (format s "; No values~%")))
              (when (repl:eval-result-id result)
-               (format s "(result id ~A; inspect it with inspect {\"result\": ~A})~%"
-                       (repl:eval-result-id result) (repl:eval-result-id result)))))))
+               (if *verbose*
+                   (format s "(result id ~A; inspect it with inspect {\"result\": ~A})~%"
+                           (repl:eval-result-id result) (repl:eval-result-id result))
+                   (format s "(result id ~A)~%" (repl:eval-result-id result))))))))
+
+(defun drop-passing-checks (text)
+  "TEXT without Rove's passing assertions (a ✓ line and the lines indented
+under it): failures, test names and the summary stay."
+  (let ((skip-indent nil))
+    (with-output-to-string (out)
+      (dolist (line (uiop:split-string text :separator '(#\Newline)))
+        (let* ((indent (or (position #\Space line :test-not #'char=) (length line)))
+               (body (subseq line indent)))
+          (cond ((and skip-indent (> indent skip-indent) (plusp (length body))))
+                ((alexandria:starts-with-subseq "✓" body)
+                 (setf skip-indent indent))
+                (t (setf skip-indent nil)
+                   (write-line line out))))))))
 
 (defun render-inspector (view)
   (if (typep view 'repl:debugger-state)
@@ -145,7 +182,8 @@ image defines it), NIL (it does not) or :UNKNOWN."
             (:text (write-string (repl:inspector-part-text p) s))
             (:value (format s "[~A]{~D}" (repl:inspector-part-text p) (repl:inspector-part-index p)))
             (:action (format s "<~A>{action ~D}" (repl:inspector-part-text p) (repl:inspector-part-index p)))))
-        (format s "~&(inspect-part {\"index\": n} follows [value]{n}; inspect-action runs <action>)~%"))))
+        (when *verbose*
+          (format s "~&(inspect-part {\"index\": n} follows [value]{n}; inspect-action runs <action>)~%")))))
 
 (defun render-location (loc)
   (cond ((null loc) "unknown location")
