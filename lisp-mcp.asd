@@ -1,10 +1,10 @@
 (defsystem "lisp-mcp"
-  :version "0.4.0"
+  :version "0.4.1"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"
   :depends-on ("alexandria" "bordeaux-threads"
-               (:version "lisp-source-protocol" "0.2.2")
+               (:version "lisp-source-protocol" "0.2.3")
                (:version "repl-protocol" "0.2.6")
                (:version "repl-backend-swank" "0.2.2")
                (:version "repl-backend-slynk" "0.2.1")
