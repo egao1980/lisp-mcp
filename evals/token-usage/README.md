@@ -117,8 +117,28 @@ Next levers:
 - a narrower search hint;
 - the live-image tools in a subagent of their own (`mcpServers` inline in `.claude/agents/`), so the main conversation never loads them.
 
-Run at least 5 trials per arm before drawing conclusions:
+## Five trials per arm (2026-11-19, Opus 5.5, lisp-mcp 0.5.0)
 
-```bash
-uv run evals/token-usage/run.py --trials 5    # about 40 sessions, roughly $12-15 on Opus 5.5
-```
+40 sessions, all 40 passed, $11.87 in total. Medians over 5 trials:
+
+| task | arm | input tokens | cache read per turn | output | cost (range) | turns | read back | written | rewrites | refusals |
+|------|-----|--------------|---------------------|--------|--------------|-------|-----------|---------|----------|----------|
+| ring-buffer | mcp | 120k | 13.9k | 3.5k | **$0.21** (0.19–0.23) | 7 | 6.2k | 4.7k | 0 | 0 |
+| ring-buffer | plain | 120k | 15.0k | 5.6k | $0.25 (0.20–0.27) | 7 | 8.0k | 4.9k | 0 | 0 |
+| ledger-edit | mcp | 225k | 14.6k | 4.1k | **$0.28** (0.27–0.36) | 14 | 13.5k | 4.1k | 0 | 0 |
+| ledger-edit | plain | 224k | 11.7k | 6.7k | $0.39 (0.37–0.41) | 19 | 30.8k | 5.4k | 3 in 5 trials | 0 |
+| ledger-debug | mcp | 185k | 22.2k | 1.7k | $0.24 (0.22–0.27) | 8 | 21.9k | 0.5k | 0 | 0 |
+| ledger-debug | plain | 172k | 18.9k | 1.9k | **$0.23** (0.22–0.24) | 8 | 24.1k | 0.2k | 0 | 0 |
+| local-time-quarter | mcp | 428k | 19.6k | 5.9k | $0.37 (0.33–0.44) | 20 | 18.0k | 3.1k | 0 | 3 in 5 trials |
+| local-time-quarter | plain | 316k | 15.4k | 5.0k | **$0.35** (0.33–0.48) | 19 | 30.3k | 2.9k | 0 | 0 |
+
+- **Editing in place is where lisp-mcp wins.** ledger-edit is 28% cheaper ($0.28 vs $0.39), with 5 fewer turns, 39% fewer output tokens and less than half the tool output read back. Every plain run worked through `Read` + `Edit`, and 3 of its 5 runs rewrote a whole file. The mcp arm never did.
+- **New files: slightly cheaper.** For ring-buffer, `edit-new-file` costs $0.21 against $0.25, mostly from fewer output tokens.
+- **Debugging: even.** Both arms read the backtrace from `cl-repo test` and fixed both bugs with two edits. The live-image tools went unused, as the validation run already showed, so the task does not yet measure them.
+- **Big third-party file: even on cost, and the mcp arm reads 40% less.** Input tokens are higher with lisp-mcp (428k vs 316k) because the runs take a turn or so more and carry the `lisp-code` catalog. The guard refused unbalanced input 3 times across 5 runs; each time nothing was written and the agent retried. The plain arm saw no reader errors, so on these tasks Opus 5.5 does not produce broken files, and the guard's value is unmeasured here.
+- **No reader errors in either arm,** across 40 runs.
+- **Spread:** cost ranges overlap except in ledger-edit, where the most expensive mcp run ($0.36) is still cheaper than the cheapest plain run ($0.37).
+
+Next:
+- a debugging task whose cause the test output does not show, so the `lisp-image` tools are needed;
+- trim the `lisp-code` catalog's per-turn cost further (local-time pays about 4k tokens per turn more than plain).
