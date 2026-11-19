@@ -1,0 +1,3 @@
+{"dir": "local-time", "cl-repo-source": {"system": "local-time", "version": "1.0.6"},
+ "drop": ["cl-postgres+local-time.asd", "src/integration", ".cl-repo-manifest.sexp"],
+ "grader": "local-time-quarter-grade.lisp"}

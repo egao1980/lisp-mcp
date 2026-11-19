@@ -1,0 +1,20 @@
+{
+ "dir": "ledger",
+ "seed": "seeds/ledger",
+ "grader": "ledger-debug-grade.lisp",
+ "patch": [
+  [
+   "src/reports.lisp",
+   "  (loop for key = from-key then (%next-month-key key)\n        collect key\n        until (string= key to-key)))",
+   "  (loop for key = from-key then (%next-month-key key)\n        until (string= key to-key)\n        collect key))"
+  ],
+  [
+   "src/reports.lisp",
+   "  \"Mean entry amount of ACCOUNT in month KEY, rounded to the cent; 0 for a\nmonth without entries.\"\n  (let ((entries (entries-in-month account key)))\n    (if (null entries)\n        0\n        (round (month-net account key) (length entries)))))",
+   "  \"Mean entry amount of ACCOUNT in month KEY, rounded to the cent.\"\n  (let ((entries (entries-in-month account key)))\n    (round (month-net account key) (length entries))))"
+  ]
+ ],
+ "unchanged": [
+  "tests/ledger-test.lisp"
+ ]
+}
