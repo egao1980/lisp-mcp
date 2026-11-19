@@ -56,13 +56,14 @@ COMMON_TOOLS = [
 ]
 ARMS = {
     "mcp": {
-        "tools": COMMON_TOOLS + ["mcp__lisp-mcp"],
-        "hint": ("Use the lisp-mcp MCP tools for Lisp work: source-outline / source-read to "
-                 "read forms, the edit-* tools (edit-replace, edit-insert, edit-rename-symbol, "
-                 "edit-new-file, ...) to change .lisp/.asd files instead of rewriting them, "
-                 "source-check to read-check them, and repl-spawn / repl-load-system / "
-                 "repl-run-tests with the debug-* and inspect tools to run and debug in a live "
-                 "image. Use cl-repo for dependencies and the final check."),
+        "tools": COMMON_TOOLS + ["mcp__lisp-code", "mcp__lisp-image"],
+        "hint": ("Use the lisp-mcp servers for Lisp work. lisp-code: source-outline / "
+                 "source-read to read forms, the edit-* tools (edit-replace, edit-insert, "
+                 "edit-rename-symbol, edit-add-export, edit-structure, edit-new-file) to change "
+                 ".lisp/.asd files instead of rewriting them, source-check to read-check them. "
+                 "lisp-image: repl-spawn / repl-load-system / repl-run-tests / repl-compile with "
+                 "the debug-* and inspect tools to run and debug in a live image. Use cl-repo "
+                 "for dependencies and the final check."),
     },
     "plain": {
         "tools": COMMON_TOOLS,
@@ -145,15 +146,18 @@ def existing_lisp_files(run_dir: pathlib.Path) -> set[str]:
 # ---------------------------------------------------------------- the agent
 
 def mcp_config(run_dir: pathlib.Path) -> dict:
-    """The workspace launcher when present, else LISP_MCP_COMMAND or `lisp-mcp`."""
+    """lisp-mcp >= 0.5 as its two servers, lisp-code (--tools code) and lisp-image
+    (--tools image), as the workspace and the plugin configure it. The command is
+    the workspace launcher when present, else LISP_MCP_COMMAND or `lisp-mcp`."""
     if os.environ.get("LISP_MCP_COMMAND"):
         command, args = os.environ["LISP_MCP_COMMAND"], []
     elif LAUNCHER.exists():
         command, args = "bash", [str(LAUNCHER)]
     else:
         command, args = "lisp-mcp", []
-    return {"mcpServers": {"lisp-mcp": {"command": command,
-                                        "args": args + ["--root", str(run_dir)]}}}
+    return {"mcpServers": {
+        name: {"command": command, "args": args + ["--tools", group, "--root", str(run_dir)]}
+        for name, group in (("lisp-code", "code"), ("lisp-image", "image"))}}
 
 
 def _text_of(content) -> str:
@@ -171,7 +175,7 @@ def _written_chars(name: str, inp: dict) -> int:
         return len(inp.get("new_string", ""))
     if name == "MultiEdit":
         return sum(len(e.get("new_string", "")) for e in inp.get("edits", []))
-    if name.startswith("mcp__lisp-mcp__edit-"):
+    if re.match(r"mcp__lisp-(mcp|code)__edit-", name):
         return len(inp.get("code", "") or "") + len(inp.get("new_name", "") or "")
     return 0
 

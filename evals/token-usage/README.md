@@ -99,6 +99,24 @@ These are single trials, so they are signals, not results:
 - **The unbalanced-edit guard fired once.** In local-time, lisp-mcp refused one edit whose code did not read as balanced, and nothing was written. The plain arm hit no reader errors on these tasks, so more trials are needed to compare.
 - **ledger-debug did not need the debugger.** Both arms fixed both bugs from `cl-repo test` output: the division by zero's backtrace is printed there. A task to compare debugging needs a failure whose cause the test output does not show. For example, wrong state built up across calls, an error inside a callback or thread, or a condition handled and turned into a wrong value, where `debug-frame-locals` or `inspect` pays off.
 
+### After lisp-mcp 0.5.0 (smaller catalog, `lisp-code` + `lisp-image`)
+
+The mcp arm now starts the two servers that the workspace and the plugin configure. This is one more trial per task in the mcp arm; plain is unchanged.
+
+| task | cache read per turn: 0.4.1 → 0.5.0 (plain) | input tokens: 0.4.1 → 0.5.0 (plain) | cost: 0.4.1 → 0.5.0 (plain) | read back |
+|------|----------------------------------------------|--------------------------------------|-----------------------------|-----------|
+| ledger-edit | 23.3k → **10.6k** (11.4k) | 345k → **168k** (231k) | $0.30 → **$0.27** ($0.38) | 13.5k (plain 31k) |
+| local-time-quarter | 20.6k → **19.0k** (14.0k) | 458k → **342k** (281k) | $0.41 → **$0.32** ($0.38) | 15.4k (plain 41k) |
+| ledger-debug | 23.6k → 24.3k (9.1k) | 211k → 217k (130k) | $0.25 → $0.25 ($0.22) | 23.7k (plain 23k) |
+
+- **ledger-edit:** the per-turn overhead of the catalog is gone, and the lisp-mcp arm is the cheapest of the three runs.
+- **local-time-quarter:** input fell by a quarter, and cost is now below plain.
+- **ledger-debug:** still about 24k of cached prefix per turn, although the agent only called `edit-replace`. Its one ToolSearch probably loaded image-server definitions it never used.
+
+Next levers:
+- a narrower search hint;
+- the live-image tools in a subagent of their own (`mcpServers` inline in `.claude/agents/`), so the main conversation never loads them.
+
 Run at least 5 trials per arm before drawing conclusions:
 
 ```bash
