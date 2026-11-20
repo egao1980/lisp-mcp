@@ -97,9 +97,6 @@
 ;;; FINISH-JOB calls for a detached job, both set by MAKE-LISP-TOOLS. The MCP
 ;;; server's notifications stay as they are.
 
-(defun %not-implemented (name)
-  (error "~A is not implemented (H4b contract stub)" name))
-
 (defparameter +image-event-frames+ 8
   "Frames an image event shows (its FRAMES slot and its text).")
 
@@ -128,36 +125,187 @@
             (image-event-kind event) (image-event-connection event)
             (image-event-thread event) (image-event-level event) (image-event-job event))))
 
+(defparameter +observe-footer+
+  "This source is in observe mode: it cannot choose a restart. Tell the user which restart you would choose and why."
+  "The last line of a :DEBUGGER event text in :OBSERVE mode.")
+
 (defun debugger-event-text (connection state &key observe)
   "The :DEBUGGER event text (see the file header) for STATE (a
 REPL-PROTOCOL:DEBUGGER-STATE) on CONNECTION (a name). OBSERVE: the observe
 mode footer instead of the restart one. Pure: no wire call."
-  (declare (ignore connection state observe))
-  (%not-implemented 'debugger-event-text))
+  (let ((thread (repl:debugger-state-thread state))
+        (level (repl:debugger-state-level state))
+        (rendered (let ((lm::*verbose* nil)
+                        (lm::*terse-frames* +image-event-frames+))
+                    (lm::render-debugger state)))) ; ends in LF
+    (format nil "<~A kind=\"debugger\" connection=\"~A\" thread=\"~A\" level=\"~A\">~%~A entered the debugger outside a tool call (thread ~A, level ~A).~%~A~A~%</~A>~%"
+            +image-event-tag+ connection thread level
+            connection thread level
+            rendered
+            (if observe
+                +observe-footer+
+                (format nil "The thread waits in the debugger until a restart is chosen: call debug-invoke-restart with connection \"~A\" (debug-backtrace, debug-frame-locals and inspect-condition look first)."
+                        connection))
+            +image-event-tag+)))
+
+(defun %job-event-text (connection job)
+  "The :JOB event text (see the file header) for finished JOB on CONNECTION
+(a name, or NIL)."
+  (let ((id (lm::job-id job))
+        (job-state (lm::job-state job)))
+    (format nil "<~A kind=\"job\"~@[ connection=\"~A\"~] job=\"~A\" state=\"~(~A~)\">~%Job ~A (~A) ~:[finished~;failed~] after ~D s:~%~A~%</~A>~%"
+            +image-event-tag+ connection id job-state
+            id (lm::job-summary job) (eq job-state :failed) (lm::job-seconds job)
+            (string-right-trim '(#\Newline) (or (lm::job-result job) ""))
+            +image-event-tag+)))
+
+;;; Making events. The hooks run on the producing thread (the wire's reader,
+;;; or a job's worker). Every read or write of the queue, and the CLOSED check
+;;; that decides whether an event is made, is under the state's lock;
+;;; ON-IMAGE-EVENT runs after the lock is released.
+
+(defun %lock (tools) (lm::state-lock (lisp-tools-state tools)))
+
+(defun %unowned-p (state)
+  "True when no pending request owns debugger STATE: its continuations are NIL
+or :UNKNOWN."
+  (let ((continuations (repl:debugger-state-continuations state)))
+    (or (null continuations) (eq continuations :unknown))))
+
+(defun %debugger-event (tools connection state)
+  (make-instance 'image-event
+                 :kind :debugger :connection connection
+                 :thread (repl:debugger-state-thread state)
+                 :level (repl:debugger-state-level state)
+                 :condition (repl:debugger-state-condition state)
+                 :restarts (mapcar (lambda (r)
+                                     (list (repl:restart-info-index r)
+                                           (%restart-name (repl:restart-info-name r))
+                                           (repl:restart-info-description r)))
+                                   (repl:debugger-state-restarts state))
+                 :frames (loop for f in (repl:debugger-state-frames state)
+                               repeat +image-event-frames+
+                               collect (list (repl:frame-info-index f)
+                                             (repl:frame-info-description f)))
+                 :text (debugger-event-text connection state
+                                            :observe (eq (lisp-tools-mode tools) :observe))))
+
+(defun %same-level-p (a b)
+  "True when queued event A is a :DEBUGGER event for B's connection, thread and level."
+  (and (eq (image-event-kind a) :debugger)
+       (equal (image-event-connection a) (image-event-connection b))
+       (equal (image-event-thread a) (image-event-thread b))
+       (eql (image-event-level a) (image-event-level b))))
+
+(defun %enqueue (tools event)
+  "Queue EVENT at the end (a :DEBUGGER event replaces its connection, thread
+and level twin), unless TOOLS is closed. → true when queued."
+  (bt2:with-lock-held ((%lock tools))
+    (unless (%closed tools)
+      (setf (%events tools)
+            (append (if (eq (image-event-kind event) :debugger)
+                        (remove-if (lambda (e) (%same-level-p e event)) (%events tools))
+                        (%events tools))
+                    (list event)))
+      t)))
+
+(defun %deliver (tools event)
+  "Call ON-IMAGE-EVENT with (TOOLS EVENT), outside every lock. Its errors
+become warnings."
+  (alexandria:when-let ((fn (lisp-tools-on-image-event tools)))
+    (handler-case (funcall fn tools event)
+      (error (e) (warn "lisp-tools ON-IMAGE-EVENT failed on ~A: ~A" event e)))))
+
+(defun %produce (tools event)
+  (when (%enqueue tools event)
+    (%deliver tools event)))
+
+(defun %debugger-returned (tools connection thread level)
+  "CONNECTION's THREAD left debugger LEVEL: drop the queued :DEBUGGER events
+of that thread at LEVEL or deeper, then pass a :DEBUGGER-RETURN event to
+ON-IMAGE-EVENT (it is not queued)."
+  (when (bt2:with-lock-held ((%lock tools))
+          (unless (%closed tools)
+            (setf (%events tools)
+                  (remove-if (lambda (e)
+                               (and (eq (image-event-kind e) :debugger)
+                                    (equal (image-event-connection e) connection)
+                                    (equal (image-event-thread e) thread)
+                                    (realp (image-event-level e)) (realp level)
+                                    (>= (image-event-level e) level)))
+                             (%events tools)))
+            t))
+    (%deliver tools (make-instance 'image-event :kind :debugger-return :connection connection
+                                                :thread thread :level level))))
+
+(defun %connection-event (tools name kind data)
+  "The connection hook: event KIND with DATA from connection NAME."
+  (case kind
+    (:debug
+     ;; a level a pending request owns is that request's result (or its job's event)
+     (when (%unowned-p data)
+       (%produce tools (%debugger-event tools name data))))
+    (:debug-return
+     (destructuring-bind (thread level &rest more) data
+       (declare (ignore more))
+       (%debugger-returned tools name thread level)))))
+
+(defun %connection-name (state conn)
+  "The name CONN is registered under in STATE, or NIL. Takes the state lock."
+  (and conn
+       (bt2:with-lock-held ((lm::state-lock state))
+         (loop for name being the hash-keys of (lm::state-connections state)
+                 using (hash-value c)
+               when (eq c conn) return name))))
+
+(defun %job-event (tools job)
+  "The job hook: detached JOB has ended."
+  (let ((name (%connection-name (lisp-tools-state tools) (lm::job-connection job))))
+    (%produce tools (make-instance 'image-event
+                                   :kind :job :connection name
+                                   :job (lm::job-id job) :job-state (lm::job-state job)
+                                   :text (%job-event-text name job)))))
+
+(defun %install-image-hooks (tools)
+  "Set the hooks of TOOLS' state (MAKE-LISP-TOOLS, with :IMAGE-EVENTS T);
+CLOSE-LISP-TOOLS clears them."
+  (let ((state (lisp-tools-state tools)))
+    (bt2:with-lock-held ((lm::state-lock state))
+      (setf (lm::state-connection-hook state)
+            (lambda (name kind data) (%connection-event tools name kind data))
+            (lm::state-job-hook state)
+            (lambda (job) (%job-event tools job))))
+    tools))
+
+;;; The queue and turns
 
 (defun lisp-tools-pending-events (tools)
   "A copy of TOOLS' queued image events, oldest first."
-  (declare (ignore tools))
-  (%not-implemented 'lisp-tools-pending-events))
+  (bt2:with-lock-held ((%lock tools))
+    (copy-list (%events tools))))
 
 (defun take-image-events (tools)
   "TOOLS' queued image events, oldest first; the queue is left empty."
-  (declare (ignore tools))
-  (%not-implemented 'take-image-events))
+  (bt2:with-lock-held ((%lock tools))
+    (shiftf (%events tools) '())))
 
 (defun image-event-turn (event)
   "The LLM user turn for EVENT: its text."
-  (declare (ignore event))
-  (%not-implemented 'image-event-turn))
+  (llm:user-turn (image-event-text event)))
 
 (defun image-event-turn-p (turn)
   "True when TURN is a user turn whose text starts with \"<lisp-image-event\"."
-  (declare (ignore turn))
-  (%not-implemented 'image-event-turn-p))
+  (and (llm:llm-turn-p turn)
+       (eq :user (llm:llm-turn-role turn))
+       (let ((text (llm:turn-text turn)))
+         (and (stringp text)
+              (alexandria:starts-with-subseq (concatenate 'string "<" +image-event-tag+) text)))
+       t))
 
 (defun post-image-events (tools run)
   "Take TOOLS' queued events and AGENT-RUN-POST each one's turn into RUN
 (an AI-AGENT-PROTOCOL:AGENT-RUN), oldest first. → the events posted. Safe
 from any thread."
-  (declare (ignore tools run))
-  (%not-implemented 'post-image-events))
+  (let ((events (take-image-events tools))) ; the lock is released here
+    (dolist (event events events)
+      (agent:agent-run-post run (image-event-turn event)))))

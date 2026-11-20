@@ -272,9 +272,22 @@ attached image keeps running. → CONN"
     (args :description "Invoke a restart by index; returns values, abort or a new debugger level."
           :kind :write)
     (input-schema '("restart" "integer" nil :required t) +connection+)
-  (handler-case (render-eval (repl:repl-invoke-restart (conn args) (arg-int args "restart")))
-    (repl:repl-invalid-restart (e)
-      (error 'bad-argument :message (princ-to-string e)))))
+  (let* ((conn (conn args))
+         (index (arg-int args "restart"))
+         ;; the level REPL-INVOKE-RESTART acts on (the innermost), before it resumes
+         (level (repl:repl-debugger-state conn)))
+    (handler-case
+        (let ((result (repl:repl-invoke-restart conn index)))
+          (if (and level (null (repl:debugger-state-request-id level)))
+              ;; no request waits on that level (H4b): its values go nowhere
+              (let ((restart (find index (repl:debugger-state-restarts level)
+                                   :key #'repl:restart-info-index)))
+                (format nil "Invoked restart ~D [~A] in thread ~A; no tool call was waiting on that thread, so its values are not shown.~%"
+                        index (if restart (repl:restart-info-name restart) "?")
+                        (repl:debugger-state-thread level)))
+              (render-eval result)))
+      (repl:repl-invalid-restart (e)
+        (error 'bad-argument :message (princ-to-string e))))))
 
 (define-tool "debug-step"
     (args :description "Step from a frame: into, next or out (code with (debug 3), entered with step)."

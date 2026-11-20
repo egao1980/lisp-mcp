@@ -126,7 +126,12 @@ restart unwinds to here, and the condition goes to whoever waits for the job
       (notify-log (if condition "warning" "notice") "lisp-mcp/jobs"
                   "Job ~A ~:[finished~;failed~] after ~D s: ~A~%~A"
                   (job-id job) condition (job-seconds job) (job-summary job)
-                  (job-result-head (job-result job) 3)))))
+                  (job-result-head (job-result job) 3))
+      ;; H4b: the job's worker thread is a thread boundary, so a hook error
+      ;; is reported as a warning instead of reaching the thread's debugger
+      (alexandria:when-let ((hook (state-job-hook state)))
+        (handler-case (funcall hook job)
+          (error (e) (warn "lisp-mcp job hook failed on ~A: ~A" (job-id job) e)))))))
 
 (defun job-result-head (text n)
   "The first N lines of TEXT, with a note when there are more."
