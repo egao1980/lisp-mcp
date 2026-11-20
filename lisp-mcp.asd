@@ -1,5 +1,5 @@
 (defsystem "lisp-mcp"
-  :version "0.5.0"
+  :version "0.6.0"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"
@@ -20,6 +20,7 @@
   :components ((:file "package")
                (:file "state")
                (:file "cache")
+               (:file "scan-forms")
                (:file "schema")
                (:file "render")
                (:file "notify")
@@ -48,6 +49,42 @@
                (:file "repl-tools-test")
                (:file "jobs-test")
                (:file "groups-test"))
+  :perform (test-op (o c)
+             (unless (symbol-call :rove :run c)
+               (error "tests failed for ~A" (component-name c)))))
+
+(defsystem "lisp-mcp/agent"
+  :version "0.6.0"
+  :description "lisp-mcp's tools as an ai-agent-protocol tool source (no MCP hop), with form-scanner permission resources and an observe mode"
+  :author "egao1980"
+  :license "MIT"
+  :depends-on ("lisp-mcp"
+               (:version "ai-agent-protocol" "0.12.0")
+               (:version "llm-protocol" "0.5.0")
+               (:version "json-protocol" "0.2.0")
+               (:version "json-backend-jzon" "0.2.0"))
+  ;; The live tests spawn images that load swank / slynk (see lisp-mcp).
+  :properties (:cl-repo (:ci (:with ("swank" "slynk"))))
+  :serial t
+  :pathname "src/agent"
+  :components ((:file "package")
+               (:file "conditions")
+               (:file "source"))
+  :in-order-to ((test-op (test-op "lisp-mcp/agent/tests"))))
+
+(defsystem "lisp-mcp/agent/tests"
+  :depends-on ("lisp-mcp/agent" "lisp-mcp" "ai-agent-protocol" "llm-protocol" "json-protocol"
+               "mcp-protocol" "repl-protocol" "alexandria" "event-protocol" "event-backend-libuv" "rove")
+  :pathname "tests/agent"
+  :serial t
+  :components ((:file "package")
+               (:file "support")
+               (:file "scan-test")
+               (:file "construct-test")
+               (:file "permissions-test")
+               (:file "observe-test")
+               (:file "live-test")
+               (:file "agent-run-test"))
   :perform (test-op (o c)
              (unless (symbol-call :rove :run c)
                (error "tests failed for ~A" (component-name c)))))

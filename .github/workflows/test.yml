@@ -10,3 +10,8 @@ on:
 jobs:
   test:
     uses: egao1980/cl-repository/.github/workflows/test-system.yml@main
+
+  agent:
+    uses: egao1980/cl-repository/.github/workflows/test-system.yml@main
+    with:
+      system: lisp-mcp/agent

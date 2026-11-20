@@ -100,6 +100,10 @@ Image output and debugger entries are also sent as log messages (`notifications/
 
 Output from other threads of a spawned image goes to the image's own log, not to the client. It reaches `repl://…/output` for an attached SLIME/Sly session whose REPL redirects global output.
 
+## Agent tool source (lisp-mcp/agent)
+
+`lisp-mcp/agent` (0.6.0, milestone H4a: contract, not implemented yet) offers the same tools to an `ai-agent-protocol` agent in-process, with no MCP hop: `(make-lisp-tools :root dir)` is a tool source. Code-taking tools get permission resources from `lisp-mcp:form-resources`, a static scanner (`lisp:pure`, `lisp:reads`, `lisp:defines`, `lisp:mutates`, `lisp:package`, `lisp:io`, `lisp:read-eval`, `lisp:calls`, `lisp:*`); `:mode :observe` is a read-only image mode. Spec: [cl-stack lisp-agent-tools.md](https://github.com/egao1980/cl-stack/blob/main/docs/capabilities/lisp-agent-tools.md).
+
 ## Test
 
 ```bash
