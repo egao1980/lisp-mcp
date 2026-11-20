@@ -15,10 +15,10 @@
   (ok (observe-safe-resources-p '("lisp:calls my-app:status") '("lisp:calls my-app:*")))
   (ok (not (observe-safe-resources-p '("lisp:calls other:status") '("lisp:calls my-app:*")))))
 
-(defun refusal (form)
+(defmacro refusal (form)
   "The OBSERVE-MODE-REFUSED FORM signals, else NIL."
-  (let ((c (failure form)))
-    (and (typep c 'observe-mode-refused) c)))
+  `(let ((c (failure ,form)))
+     (and (typep c 'observe-mode-refused) c)))
 
 (deftest observe-refuses-mutating-code
   (with-tools (tools root :mode :observe) '()
