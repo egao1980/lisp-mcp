@@ -27,6 +27,29 @@
    #:+code-tools+
    #:+observe-tools+
    #:observe-safe-resources-p
+   ;; H4b: image events (the debugger → agent inbox bridge)
+   #:lisp-tools-image-events-p
+   #:lisp-tools-on-image-event
+   #:image-event
+   #:image-event-p
+   #:image-event-kind
+   #:image-event-connection
+   #:image-event-thread
+   #:image-event-level
+   #:image-event-condition
+   #:image-event-restarts
+   #:image-event-frames
+   #:image-event-job
+   #:image-event-job-state
+   #:image-event-text
+   #:+image-event-frames+
+   #:+image-event-tag+
+   #:debugger-event-text
+   #:lisp-tools-pending-events
+   #:take-image-events
+   #:image-event-turn
+   #:image-event-turn-p
+   #:post-image-events
    ;; conditions
    #:observe-mode-refused))
 

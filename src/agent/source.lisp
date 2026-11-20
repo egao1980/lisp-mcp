@@ -46,7 +46,17 @@ tool (lisp-mcp's readOnlyHint). The code tools among them are scan-gated.")
             :documentation "Package for scanning code that names none.")
    (state :initarg :state :reader lisp-tools-state
           :documentation "The LISP-MCP::LISP-MCP-STATE every call binds.")
-   (closed :initform nil :accessor %closed :reader lisp-tools-closed-p))
+   (closed :initform nil :accessor %closed :reader lisp-tools-closed-p)
+   ;; H4b (src/agent/events.lisp)
+   (image-events :initarg :image-events :initform t :reader lisp-tools-image-events-p
+                 :documentation "True: debugger entries outside a tool call and the ends
+of detached jobs become IMAGE-EVENTs (queued, and passed to ON-IMAGE-EVENT).")
+   (on-image-event :initarg :on-image-event :initform nil :accessor lisp-tools-on-image-event
+                   :documentation "NIL, or a function (TOOLS EVENT) called on the thread
+that produced EVENT (the wire's reader thread, or a job's worker), after it is
+queued. It must not block and must not call this source's image tools.")
+   (events :initform '() :accessor %events
+           :documentation "Queued IMAGE-EVENTs, oldest first (under the state's lock)."))
   (:documentation "lisp-mcp's source, edit, output, repl, debug, inspect and
 job tools as an ai-agent-protocol tool source."))
 
@@ -69,13 +79,17 @@ job tools as an ai-agent-protocol tool source."))
   (or (and (fourth (%entry name)) t)
       (and (member name +observe-tools+ :test #'string=) t)))
 
+(declaim (ftype function %install-image-hooks)) ; events.lisp
+
 (defun make-lisp-tools (&key (root (uiop:getcwd)) groups tools (mode :full) observe-allow
-                             (needs-approval t) (package "cl-user"))
+                             (needs-approval t) (package "cl-user")
+                             (image-events t) on-image-event)
   "A LISP-TOOLS rooted at ROOT (a directory that must exist). GROUPS selects
 lisp-mcp tool groups like its --tools (NIL = all, a keyword list, or a comma
 string with presets \"code\" / \"image\" / \"all\"). TOOLS, when given, keeps
 only those names. MODE is :FULL or :OBSERVE. Unknown groups, tool names or
-modes → ERROR."
+modes → ERROR. H4b: IMAGE-EVENTS (default T) turns on IMAGE-EVENTs;
+ON-IMAGE-EVENT is called with (TOOLS EVENT) for each (see events.lisp)."
   (check-type mode (member :full :observe))
   (let ((dir (probe-file (uiop:ensure-directory-pathname root))))
     (unless (and dir (uiop:directory-pathname-p dir))
@@ -90,7 +104,8 @@ modes → ERROR."
                                   name (lm::state-tool-groups state)))))
       ;; repl-spawn starts images through process-protocol, as the MCP server does
       (process-backend-uiop:use-uiop-process-backend)
-      (make-instance 'lisp-tools
+      (let ((source
+              (make-instance 'lisp-tools
                      :root (lm:state-root state)
                      :groups (lm::state-tool-groups state)
                      :names (remove-if-not (lambda (name)
@@ -101,7 +116,11 @@ modes → ERROR."
                      :observe-allow observe-allow
                      :needs-approval needs-approval
                      :package package
-                     :state state))))
+                     :image-events image-events
+                     :on-image-event on-image-event
+                     :state state)))
+        (when image-events (%install-image-hooks source))
+        source))))
 
 (defun %offered-p (tools name)
   (and (member name (lisp-tools-names tools) :test #'equal) t))
@@ -363,7 +382,12 @@ keep running), interrupt running jobs, and refuse later calls. Idempotent.
         (jobs '()))
     (bt2:with-lock-held ((lm::state-lock state))
       (when (%closed tools) (return-from close-lisp-tools nil))
+      ;; H4b: the queue goes, and no event is made after this (the hooks
+      ;; are off, and every producer re-checks CLOSED under this lock)
       (setf (%closed tools) t
+            (%events tools) '()
+            (lm::state-connection-hook state) nil
+            (lm::state-job-hook state) nil
             connections (loop for name being the hash-keys of (lm::state-connections state)
                                 using (hash-value conn)
                               collect (cons name conn))
@@ -388,7 +412,12 @@ starts with \"OBSERVE MODE\"."
   (let* ((text (lm::server-instructions :state (lisp-tools-state tools)))
          (lines (remove-if (lambda (line) (alexandria:starts-with-subseq "Resources:" line))
                            (uiop:split-string text :separator '(#\Newline)))))
-    (format nil "~{~A~^~%~}~@[~%~A~]" lines
+    (format nil "~{~A~^~%~}~@[~%~A~]~@[~%~A~]" lines
+            (and (lisp-tools-image-events-p tools)
+                 (lm::image-tools-p :state (lisp-tools-state tools))
+                 (if (eq (lisp-tools-mode tools) :observe)
+                     "IMAGE EVENTS: a user turn that starts with <lisp-image-event> reports what an image did outside a tool call (a thread entered the debugger, or a detached job jN ended); look with debug-state, debug-backtrace or job-status and tell the user which restart you would choose."
+                     "IMAGE EVENTS: a user turn that starts with <lisp-image-event> reports what an image did outside a tool call (a thread entered the debugger, or a detached job jN ended); answer it with the debug tools (debug-invoke-restart with its connection) or job-status."))
             (and (eq (lisp-tools-mode tools) :observe)
                  "OBSERVE MODE: only read tools and repl-eval / debug-eval-in-frame / inspect code that scans to lisp:pure or lisp:reads run (repl-connect attaches; no spawn, edit, compile, load or restart). Anything else is refused as a tool result."))))
 

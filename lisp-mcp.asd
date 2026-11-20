@@ -1,5 +1,5 @@
 (defsystem "lisp-mcp"
-  :version "0.6.1"
+  :version "0.7.0"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"
@@ -55,7 +55,7 @@
                (error "tests failed for ~A" (component-name c)))))
 
 (defsystem "lisp-mcp/agent"
-  :version "0.6.1"
+  :version "0.7.0"
   :description "lisp-mcp's tools as an ai-agent-protocol tool source (no MCP hop), with form-scanner permission resources and an observe mode"
   :author "egao1980"
   :license "MIT"
@@ -70,12 +70,13 @@
   :pathname "src/agent"
   :components ((:file "package")
                (:file "conditions")
-               (:file "source"))
+               (:file "source")
+               (:file "events"))
   :in-order-to ((test-op (test-op "lisp-mcp/agent/tests"))))
 
 (defsystem "lisp-mcp/agent/tests"
   :depends-on ("lisp-mcp/agent" "lisp-mcp" "ai-agent-protocol" "llm-protocol" "json-protocol"
-               "mcp-protocol" "repl-protocol" "process-protocol" "alexandria" "event-protocol" "event-backend-libuv" "rove")
+               "mcp-protocol" "repl-protocol" "process-protocol" "alexandria" "bordeaux-threads" "event-protocol" "event-backend-libuv" "rove")
   :pathname "tests/agent"
   :serial t
   :components ((:file "package")
@@ -85,7 +86,11 @@
                (:file "permissions-test")
                (:file "observe-test")
                (:file "live-test")
-               (:file "agent-run-test"))
+               (:file "agent-run-test")
+               ;; H4b
+               (:file "bridge-test")
+               (:file "bridge-live-test")
+               (:file "bridge-agent-test"))
   :perform (test-op (o c)
              (unless (symbol-call :rove :run c)
                (error "tests failed for ~A" (component-name c)))))

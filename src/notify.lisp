@@ -70,7 +70,11 @@ or a list whose &BODY marks the body."
           (:debug-return
            (when server (mcp:notify-resources-updated server (debugger-uri name))))
           (:indentation
-           (record-image-indentation data)))))))
+           (record-image-indentation data)))
+        ;; H4b: the per-state hook sees every event, whether or not the
+        ;; server notifies; read now, so it can be set or cleared at any time
+        (alexandria:when-let ((hook (state-connection-hook state)))
+          (funcall hook name kind data))))))
 
 (defun watch-connection (name conn)
   (setf (repl:repl-event-listener conn) (connection-listener name))

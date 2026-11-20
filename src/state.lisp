@@ -97,6 +97,13 @@ list of group and preset names (\"code\", \"image\", \"all\", \"source,edit\")."
          :documentation "JOB objects returned to the client as running, newest first.")
    (job-counter :initform 0 :accessor state-job-counter)
    (job-cv :initform (bt2:make-condition-variable :name "lisp-mcp jobs") :reader state-job-cv)
+   (connection-hook :initform nil :accessor state-connection-hook
+                    :documentation "NIL, or a function (NAME KIND DATA) CONNECTION-LISTENER
+calls for every event of connection NAME, after the MCP notifications. Read when
+the event arrives. Set by LISP-MCP/AGENT:MAKE-LISP-TOOLS (H4b image events).")
+   (job-hook :initform nil :accessor state-job-hook
+             :documentation "NIL, or a function (JOB) FINISH-JOB calls when a detached JOB
+has ended. Set by LISP-MCP/AGENT:MAKE-LISP-TOOLS (H4b image events).")
    (lock :initform (bt2:make-lock :name "lisp-mcp state") :reader state-lock)))
 
 (defvar *state* nil "The LISP-MCP-STATE of the running server.")
