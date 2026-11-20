@@ -40,6 +40,13 @@
       (ok (= 1 (length connections)))
       (close-lisp-tools tools)
       (ok (notany #'repl:repl-connected-p connections))
+      ;; #18: the image has exited when close returns, so its working
+      ;; directory (the root) can be removed at once, on Windows too.
+      (ok (notany (lambda (c) (process-protocol:alive-p (repl:connection-process c)))
+                  connections)
+          "the spawned image has exited")
+      (ok (progn (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore) t)
+          "the root can be deleted right away")
       (ok (typep (failure (tool tools "repl-list")) 'a:tool-unavailable)))))
 
 (deftest live-observe-attached-image

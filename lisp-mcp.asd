@@ -1,5 +1,5 @@
 (defsystem "lisp-mcp"
-  :version "0.6.0"
+  :version "0.6.1"
   :description "Common Lisp MCP server: static analysis, structural editing, live Swank/Slynk images"
   :author "egao1980"
   :license "MIT"
@@ -8,6 +8,7 @@
                (:version "repl-protocol" "0.2.6")
                (:version "repl-backend-swank" "0.2.2")
                (:version "repl-backend-slynk" "0.2.1")
+               "process-protocol"
                "process-backend-uiop"
                (:version "mcp-protocol" "0.3.1")
                (:version "mcp-backend-stdio" "0.2.0"))
@@ -54,7 +55,7 @@
                (error "tests failed for ~A" (component-name c)))))
 
 (defsystem "lisp-mcp/agent"
-  :version "0.6.0"
+  :version "0.6.1"
   :description "lisp-mcp's tools as an ai-agent-protocol tool source (no MCP hop), with form-scanner permission resources and an observe mode"
   :author "egao1980"
   :license "MIT"
@@ -74,7 +75,7 @@
 
 (defsystem "lisp-mcp/agent/tests"
   :depends-on ("lisp-mcp/agent" "lisp-mcp" "ai-agent-protocol" "llm-protocol" "json-protocol"
-               "mcp-protocol" "repl-protocol" "alexandria" "event-protocol" "event-backend-libuv" "rove")
+               "mcp-protocol" "repl-protocol" "process-protocol" "alexandria" "event-protocol" "event-backend-libuv" "rove")
   :pathname "tests/agent"
   :serial t
   :components ((:file "package")

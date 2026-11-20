@@ -66,12 +66,30 @@
                                  (format nil "~A: closed~%" name))))
                    (state-connections *state*))))))
 
+(defvar *image-exit-timeout* 10
+  "Seconds a kill (repl-disconnect kill=true, CLOSE-LISP-TOOLS) waits for a
+spawned image to exit before it returns anyway.")
+
+(defun disconnect-connection (conn &key kill)
+  "REPL-DISCONNECT CONN. With KILL, a spawned image is killed and waited for
+(at most *IMAGE-EXIT-TIMEOUT* seconds), so on return its working directory
+can be removed (Windows keeps it in use while the process lives, #18). An
+attached image keeps running. → CONN"
+  (repl:repl-disconnect conn :kill kill)
+  (let ((process (and kill (repl:connection-process conn))))
+    (when process
+      (handler-case (process-protocol:wait process :timeout *image-exit-timeout*)
+        ;; Still alive after the timeout, or the handle cannot wait: the
+        ;; kill was sent; do not hang the caller.
+        (process-protocol:process-error () nil))))
+  conn)
+
 (define-tool "repl-disconnect"
     (args :description "Close a connection; kill=true also stops a spawned image." :kind :write)
     (input-schema +connection+ '("kill" "boolean" "Default true"))
   (let* ((name (or (arg-string args "connection") (state-default-connection *state*)))
          (c (find-connection name)))
-    (repl:repl-disconnect c :kill (arg-bool args "kill" t))
+    (disconnect-connection c :kill (arg-bool args "kill" t))
     (remove-connection name)
     (format nil "Disconnected ~A~%" name)))
 

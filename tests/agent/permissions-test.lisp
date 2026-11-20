@@ -53,6 +53,40 @@
                 :test #'string=)
         "a locator that misses")))
 
+(deftest resources-edit-compile-in-the-file-package
+  ;; #17: edit-* with compile=true scans `code` in the package in effect at the
+  ;; located form, as the edit compiles it (and as repl-compile scans).
+  (with-tools (tools root) `(("app.lisp" ,+my-app-file+) ("demo.lisp" ,+demo+))
+    (ok (resources= (resources tools "edit-replace" "path" "app.lisp" "locator" "defun start"
+                               "code" "(defun start () (print :go))" "compile" t)
+                    '("path:app.lisp" "lisp:defines my-app:start" "lisp:io"))
+        "edit-replace: the file's in-package, not cl-user")
+    (ok (resources= (resources tools "edit-insert" "path" "app.lisp" "locator" "defun start"
+                               "code" "(defun stop () 1)" "compile" t)
+                    '("path:app.lisp" "lisp:defines my-app:stop"))
+        "edit-insert after the form")
+    (ok (resources= (resources tools "edit-insert" "path" "app.lisp" "locator" "path:0"
+                               "where" "after" "code" "(defun stop () 1)" "compile" t)
+                    '("path:app.lisp" "lisp:defines my-app:stop"))
+        "after the in-package form: its package")
+    (ok (resources= (resources tools "edit-insert" "path" "app.lisp" "locator" "path:0"
+                               "where" "before" "code" "(defun stop () 1)" "compile" t)
+                    '("path:app.lisp" "lisp:defines cl-user:stop"))
+        "before the in-package form: the package before it")
+    (ok (resources= (resources tools "edit-replace" "path" "demo.lisp" "locator" "defun half"
+                               "code" "(defun half (x) x)" "compile" t)
+                    '("path:demo.lisp" "lisp:defines cl-user:half"))
+        "no in-package: cl-user")
+    (ok (resources= (resources tools "edit-replace" "path" "app.lisp" "locator" "defun nope"
+                               "code" "(defun nope () 1)" "compile" t)
+                    '("path:app.lisp" "lisp:defines cl-user:nope"))
+        "a locator that misses: the call's or source's package"))
+  (with-tools (tools root :package "my-app") `(("demo.lisp" ,+demo+))
+    (ok (resources= (resources tools "edit-replace" "path" "demo.lisp" "locator" "defun half"
+                               "code" "(defun half (x) x)" "compile" t)
+                    '("path:demo.lisp" "lisp:defines cl-user:half"))
+        "the file decides, as the compile does, not the source's :package")))
+
 (deftest resources-image-tools
   (with-tools (tools root) '()
     (ok (equal '("system:my-app") (resources tools "repl-load-system" "system" "My-App")))
