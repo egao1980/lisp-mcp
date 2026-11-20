@@ -12,4 +12,6 @@
            #:path-outside-root
            #:unknown-connection
            #:no-connection
-           #:main))
+           #:main
+           ;; H4a form scanner (pure)
+           #:form-resources))
