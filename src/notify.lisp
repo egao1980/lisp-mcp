@@ -60,15 +60,15 @@ or a list whose &BODY marks the body."
       (let ((*server* server) (*state* state))
         (case (if (or notify (eq kind :indentation)) kind :ignored)
           (:output
-           (mcp:notify-resources-updated server (output-uri name))
+           (when server (mcp:notify-resources-updated server (output-uri name)))
            (notify-log "info" (format nil "repl/~A" name) "~A" data))
           (:debug
-           (mcp:notify-resources-updated server (debugger-uri name))
+           (when server (mcp:notify-resources-updated server (debugger-uri name)))
            (notify-log "warning" (format nil "repl/~A" name)
                        "~A entered the debugger (level ~A): ~A~%Use debug-state, debug-backtrace, debug-invoke-restart."
                        name (repl:debugger-state-level data) (repl:debugger-state-condition data)))
           (:debug-return
-           (mcp:notify-resources-updated server (debugger-uri name)))
+           (when server (mcp:notify-resources-updated server (debugger-uri name))))
           (:indentation
            (record-image-indentation data)))))))
 

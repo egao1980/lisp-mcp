@@ -4,7 +4,8 @@
                     (#:llm #:llm-protocol)
                     (#:json #:json-protocol)
                     (#:repl #:repl-protocol)
-                    (#:lm #:lisp-mcp))
+                    (#:lm #:lisp-mcp)
+                    (#:src #:lisp-source-protocol))
   (:export
    ;; tool source
    #:lisp-tools
