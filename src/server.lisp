@@ -134,7 +134,7 @@ without the image arguments of a source or edit tool when no image group is on."
         (schema-without schema *image-arguments*)
         schema)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.6.1") tools)
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.7.0") tools)
   "MCP server rooted at ROOT with the tools and resources of the groups TOOLS
 selects (see PARSE-TOOL-GROUPS; default all). Binds *STATE* and *SERVER*."
   (setf *state* (make-state :root root :tool-groups tools))

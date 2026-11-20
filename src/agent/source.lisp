@@ -46,7 +46,17 @@ tool (lisp-mcp's readOnlyHint). The code tools among them are scan-gated.")
             :documentation "Package for scanning code that names none.")
    (state :initarg :state :reader lisp-tools-state
           :documentation "The LISP-MCP::LISP-MCP-STATE every call binds.")
-   (closed :initform nil :accessor %closed :reader lisp-tools-closed-p))
+   (closed :initform nil :accessor %closed :reader lisp-tools-closed-p)
+   ;; H4b (src/agent/events.lisp)
+   (image-events :initarg :image-events :initform t :reader lisp-tools-image-events-p
+                 :documentation "True: debugger entries outside a tool call and the ends
+of detached jobs become IMAGE-EVENTs (queued, and passed to ON-IMAGE-EVENT).")
+   (on-image-event :initarg :on-image-event :initform nil :accessor lisp-tools-on-image-event
+                   :documentation "NIL, or a function (TOOLS EVENT) called on the thread
+that produced EVENT (the wire's reader thread, or a job's worker), after it is
+queued. It must not block and must not call this source's image tools.")
+   (events :initform '() :accessor %events
+           :documentation "Queued IMAGE-EVENTs, oldest first (under the state's lock)."))
   (:documentation "lisp-mcp's source, edit, output, repl, debug, inspect and
 job tools as an ai-agent-protocol tool source."))
 
@@ -70,12 +80,14 @@ job tools as an ai-agent-protocol tool source."))
       (and (member name +observe-tools+ :test #'string=) t)))
 
 (defun make-lisp-tools (&key (root (uiop:getcwd)) groups tools (mode :full) observe-allow
-                             (needs-approval t) (package "cl-user"))
+                             (needs-approval t) (package "cl-user")
+                             (image-events t) on-image-event)
   "A LISP-TOOLS rooted at ROOT (a directory that must exist). GROUPS selects
 lisp-mcp tool groups like its --tools (NIL = all, a keyword list, or a comma
 string with presets \"code\" / \"image\" / \"all\"). TOOLS, when given, keeps
 only those names. MODE is :FULL or :OBSERVE. Unknown groups, tool names or
-modes → ERROR."
+modes → ERROR. H4b: IMAGE-EVENTS (default T) turns on IMAGE-EVENTs;
+ON-IMAGE-EVENT is called with (TOOLS EVENT) for each (see events.lisp)."
   (check-type mode (member :full :observe))
   (let ((dir (probe-file (uiop:ensure-directory-pathname root))))
     (unless (and dir (uiop:directory-pathname-p dir))
@@ -101,6 +113,8 @@ modes → ERROR."
                      :observe-allow observe-allow
                      :needs-approval needs-approval
                      :package package
+                     :image-events image-events
+                     :on-image-event on-image-event
                      :state state))))
 
 (defun %offered-p (tools name)

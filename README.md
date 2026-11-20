@@ -102,7 +102,7 @@ Output from other threads of a spawned image goes to the image's own log, not to
 
 ## Agent tool source (lisp-mcp/agent)
 
-`lisp-mcp/agent` (0.6.1) offers the same tools to an `ai-agent-protocol` agent in-process, with no MCP hop: `(make-lisp-tools :root dir)` is a tool source. Code-taking tools get permission resources from `lisp-mcp:form-resources`, a static scanner (`lisp:pure`, `lisp:reads`, `lisp:defines`, `lisp:mutates`, `lisp:package`, `lisp:io`, `lisp:read-eval`, `lisp:calls`, `lisp:*`); `:mode :observe` is a read-only image mode. Spec: [cl-stack lisp-agent-tools.md](https://github.com/egao1980/cl-stack/blob/main/docs/capabilities/lisp-agent-tools.md).
+`lisp-mcp/agent` (0.7.0) offers the same tools to an `ai-agent-protocol` agent in-process, with no MCP hop: `(make-lisp-tools :root dir)` is a tool source. Code-taking tools get permission resources from `lisp-mcp:form-resources`, a static scanner (`lisp:pure`, `lisp:reads`, `lisp:defines`, `lisp:mutates`, `lisp:package`, `lisp:io`, `lisp:read-eval`, `lisp:calls`, `lisp:*`); `:mode :observe` is a read-only image mode. Image events (H4b): a debugger entry outside a tool call (a background thread, a timer) and the end of a detached job become `image-event`s, queued on the source and passed to `:on-image-event`; `post-image-events` puts them into an agent run's inbox as `<lisp-image-event>` user turns, and the agent answers with `debug-invoke-restart` under the same `restart:<name>` rules. Spec: [cl-stack lisp-agent-tools.md](https://github.com/egao1980/cl-stack/blob/main/docs/capabilities/lisp-agent-tools.md).
 
 ## Test
 
