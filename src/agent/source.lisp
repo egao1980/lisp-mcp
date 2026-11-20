@@ -189,6 +189,30 @@ effect at it, or of the whole file."
           ((or lm::lisp-mcp-error src:lisp-source-error) ()
             (list (concatenate 'string "path:" path) "lisp:*"))))))
 
+(defun %edit-compile-resources (tools name args)
+  "edit-* with compile=true: the scan of `code` in the package in effect where
+it lands (SRC:PACKAGE-AT the located form: its start, or its end for
+edit-insert after it, the default), as the edit compiles it and as repl-compile scans
+(#17). No locatable form → %CODE-RESOURCES (the call's package or the
+source's)."
+  (let ((code (lm::arg-string args "code"))
+        (path (lm::arg-string args "path"))
+        (locator (lm::arg-string args "locator")))
+    (if (or (%blank-p code) (%blank-p path) (%blank-p locator))
+        (%code-resources tools args)
+        (or (handler-case
+                (let* ((lm:*state* (lisp-tools-state tools))
+                       (parsed (lm::read-project-file path))
+                       (node (lm::locate-in parsed locator))
+                       (after (and (string= name "edit-insert")
+                                   (not (string-equal (lm::arg-string args "where" "after")
+                                                      "before"))))
+                       (offset (if after (src:node-end node) (src:node-start node))))
+                  (or (lm:form-resources code :package (src:package-at parsed offset))
+                      (list "*")))
+              ((or lm::lisp-mcp-error src:lisp-source-error) () nil))
+            (%code-resources tools args)))))
+
 (defun %restart-name (name)
   "restart-info-name downcased, without a package prefix or a leading *."
   (let* ((s (string-downcase (princ-to-string name)))
@@ -229,7 +253,7 @@ effect at it, or of the whole file."
           ((%prefix-p "edit-" name)
            (let ((paths (remove nil (list (path-of "path") (path-of "target_path")))))
              (append (or paths (list "*"))
-                     (and (lm::arg-bool args "compile") (%code-resources tools args)))))
+                     (and (lm::arg-bool args "compile") (%edit-compile-resources tools name args)))))
           ((%prefix-p "source-" name)
            (let ((p (path-of "path"))) (if p (list p) (list "*"))))
           ((member name '("repl-load-system" "repl-run-tests") :test #'string=)
@@ -330,8 +354,10 @@ conditions (wire errors) pass through."
             (error 'agent:tool-input-error :message (princ-to-string c))))))))
 
 (defun close-lisp-tools (tools)
-  "Disconnect every connection (killing spawned images; attached ones keep
-running), interrupt running jobs, and refuse later calls. Idempotent. → NIL"
+  "Disconnect every connection (killing spawned images and waiting, at most
+LISP-MCP::*IMAGE-EXIT-TIMEOUT* seconds each, for them to exit; attached ones
+keep running), interrupt running jobs, and refuse later calls. Idempotent.
+→ NIL"
   (let ((state (lisp-tools-state tools))
         (connections '())
         (jobs '()))
@@ -350,7 +376,7 @@ running), interrupt running jobs, and refuse later calls. Idempotent. → NIL"
                                            :thread (lm::job-interrupt-thread job))
           (repl:repl-error () nil))))
     (loop for (name . conn) in connections
-          do (handler-case (repl:repl-disconnect conn :kill t) ; kills only spawned images
+          do (handler-case (lm::disconnect-connection conn :kill t) ; kills only spawned images
                (repl:repl-error () nil))
              (lm::remove-connection name :state state))
     nil))
@@ -403,7 +429,7 @@ its server offers them for the source's groups), in catalog order."
                  nil
                  (unsafe-code-p)))
             ((and (%prefix-p "edit-" name) args (lm::arg-bool args "compile"))
-             (unsafe-code-p))
+             (not (observe-safe-resources-p (%edit-compile-resources source name args) allow)))
             ((member name +approval-tools+ :test #'string=) t)
             (t nil)))))
 
