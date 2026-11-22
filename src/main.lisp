@@ -31,7 +31,7 @@ debug, inspect, jobs, or the presets code (source,edit,output), image
     (configure-output-limits :lines (getf opts :max-output-lines) :chars (getf opts :max-output-chars)
                              :verbose (getf opts :verbose))
     (alexandria:when-let ((backend (getf opts :spawn)))
-      (let ((c (repl:repl-spawn (backend-named backend) :directory (state-root *state*))))
+      (let ((c (spawn-image-for-root (backend-named backend) (state-root *state*))))
         (add-connection (fresh-connection-name backend) c)))
     (alexandria:when-let ((attach (getf opts :attach)))
       (let* ((colon (position #\: attach :from-end t))
