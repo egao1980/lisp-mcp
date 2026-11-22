@@ -45,11 +45,11 @@ otherwise enter the debugger with MISSING-COMPONENT. COMMAND is used as given."
         (repl:repl-spawn backend :command default :directory root :timeout *project-spawn-timeout*))))
 
 (define-tool "repl-spawn"
-    (args :description "Start a fresh SBCL image with Swank or Slynk and connect to it (in a cl-repo project: under cl-repo run, with the project and its dependencies on the ASDF registry)."
+    (args :description "Start a fresh SBCL image with Swank or Slynk and connect to it."
           :kind :write)
     (input-schema '("backend" "string" "Default swank" :enum ("swank" "slynk"))
                   '("name" "string" nil)
-                  '("command" "string" "Command prefix (default: ros +Q run --, under cl-repo run -- in a cl-repo project)"))
+                  '("command" "string" "Command prefix (default: ros +Q run --; in a cl-repo project under cl-repo run --)"))
   (let* ((backend (backend-named (arg-string args "backend")))
          (command (let ((c (arg-string args "command")))
                     (and c (uiop:split-string c :separator " "))))
