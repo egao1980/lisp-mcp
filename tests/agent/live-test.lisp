@@ -66,3 +66,27 @@
         (close-lisp-tools watch))
       (ok (has "=> 3" (tool full "repl-eval" "code" "(+ 1 2)"))
           "closing an observer does not stop an attached image"))))
+
+;;; A spawned image in a cl-repo project loads the project and its OCI
+;;; dependencies. cl-stack-code's image on cl-stack-sample entered the
+;;; debugger on repl-load-system (MISSING-COMPONENT "cl-stack-sample"): the
+;;; child's registry had only swank. Under `cl-repo run` it has the checkout
+;;; and the systems cl-repo installed (alexandria here), without Quicklisp.
+
+(defparameter +probe-asd+
+  "(defsystem \"lisp-mcp-probe\" :depends-on (\"alexandria\") :components ((:file \"probe\")))")
+
+(defparameter +probe-lisp+
+  (format nil "(defpackage #:lisp-mcp-probe (:use #:cl))~%(in-package #:lisp-mcp-probe)~%(defun answer () (alexandria:iota 3))~%"))
+
+(deftest live-spawn-loads-cl-repo-project
+  (if (not (nth-value 1 (repl-protocol::find-program repl:*cl-repo-program*)))
+      (skip "cl-repo is not on PATH")
+      (with-tools (tools root) `(("lisp-mcp-probe.asd" ,+probe-asd+) ("probe.lisp" ,+probe-lisp+))
+        (ok (has "SBCL" (tool tools "repl-spawn")))
+        (let ((load (tool tools "repl-load-system" "system" "lisp-mcp-probe")))
+          (ng (has "DEBUGGER" load) (format nil "repl-load-system: ~a" load)))
+        (ok (has "=> (0 1 2)" (tool tools "repl-eval" "code" "(lisp-mcp-probe::answer)"))
+            "the project and its dependency are loaded")
+        (ok (has "=> NIL" (tool tools "repl-eval" "code" "(find-package \"QL\")"))
+            "no Quicklisp in the image"))))

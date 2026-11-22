@@ -29,16 +29,31 @@
 
 ;;; Lifecycle
 
+(defparameter *project-spawn-timeout* 600
+  "Seconds a spawn under `cl-repo run` may take: it syncs the project first.")
+
+(defun spawn-image-for-root (backend root &optional command)
+  "REPL:REPL-SPAWN BACKEND in ROOT. Without COMMAND, a cl-repo project root
+(an .asd at its top, cl-repo on PATH) runs the default image under `cl-repo
+run --` (REPL:PROJECT-IMAGE-COMMAND), so the image finds the project and the
+systems cl-repo installed for it: repl-load-system of the project would
+otherwise enter the debugger with MISSING-COMPONENT. COMMAND is used as given."
+  (let* ((default (repl:project-image-command root))
+         (project (not (eq default repl:*default-image-command*))))
+    (if (or command (not project))
+        (repl:repl-spawn backend :command (or command repl:*default-image-command*) :directory root)
+        (repl:repl-spawn backend :command default :directory root :timeout *project-spawn-timeout*))))
+
 (define-tool "repl-spawn"
     (args :description "Start a fresh SBCL image with Swank or Slynk and connect to it."
           :kind :write)
     (input-schema '("backend" "string" "Default swank" :enum ("swank" "slynk"))
                   '("name" "string" nil)
-                  '("command" "string" "Command prefix (default: ros +Q run --)"))
+                  '("command" "string" "Command prefix (default: ros +Q run --; in a cl-repo project under cl-repo run --)"))
   (let* ((backend (backend-named (arg-string args "backend")))
          (command (let ((c (arg-string args "command")))
-                    (if c (uiop:split-string c :separator " ") repl:*default-image-command*)))
-         (c (repl:repl-spawn backend :command command :directory (state-root *state*)))
+                    (and c (uiop:split-string c :separator " "))))
+         (c (spawn-image-for-root backend (state-root *state*) command))
          (name (or (arg-string args "name") (fresh-connection-name (arg-string args "backend" "swank")))))
     (add-connection name c)
     (render-connection name c)))

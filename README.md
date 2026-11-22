@@ -64,6 +64,8 @@ Step-by-step sessions (edit → compile → debug → inspect): [cl-stack cookbo
 - **output:** `output-read`
 - **jobs:** `job-list`, `job-status`, `job-wait`, `job-cancel`
 
+**Spawned images.** `repl-spawn` (and `--spawn`) starts `ros +Q run --` (no Quicklisp) in the root. When the root is a cl-repo project (an `.asd` at its top) and `cl-repo` is on `PATH`, the image runs under `cl-repo run --`: cl-repo syncs the project, and the image's ASDF registry has the project and the systems cl-repo installed for it, with cl-repo's fasl root, so `repl-load-system` and `repl-run-tests` of the project work. That spawn may take up to 600 s (the sync). An explicit `command` is used as given. Without cl-repo the registry has only the server (swank / slynk) and the child's own configuration (`CL_SOURCE_REGISTRY`).
+
 `edit-structure` takes an `op`: `wrap` (`head`, e.g. `"when (ready-p)"`; empty gives `(FORM)`), `splice`, `raise`, `slurp` / `barf` (`direction` `forward` or `backward`), `transpose`, `move` (`target_locator`, optional `target_path`, `where`, `target_expected_hash`; both files are verified before either is written) and `repair` (`index` of the imbalance from `source-check`; no locator).
 
 **Breaking change in 0.5.0.** `edit-wrap`, `edit-splice`, `edit-raise`, `edit-slurp`, `edit-barf`, `edit-transpose`, `edit-move` and `edit-repair` are gone: call `edit-structure` with `op` set to `wrap`, `splice`, `raise`, `slurp`, `barf`, `transpose`, `move` or `repair` and the same other arguments.
