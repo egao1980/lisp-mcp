@@ -9,6 +9,15 @@
   (ok (null (scan (format nil "; just a comment~%"))))
   (ok (null (scan "#| block |#"))))
 
+(deftest scan-skips-excluded-branches
+  "A #+/#- branch the features exclude is source the image never runs, though
+lisp-source-protocol 0.2.5 reads it as a form."
+  (ok (null (scan "#+(or) (delete-file \"x\")")))
+  (ok (null (scan "#-sbcl (delete-file \"x\")" :features '(:sbcl))))
+  (ok (scan "#-sbcl (delete-file \"x\")" :features '(:ecl)) "included under other features")
+  (check-scan '(("#+(or) #.(delete-file \"x\") 2" ("lisp:pure"))
+                ("(list #+(or) #.(error \"x\") 1)" ("lisp:pure")))))
+
 (deftest scan-pure
   (check-scan
    '(("(+ 1 2)" ("lisp:pure"))

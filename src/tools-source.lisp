@@ -57,7 +57,7 @@ next call can succeed without another read."
     (flet ((entry-line (e)
              (let ((node (src:outline-entry-node e)))
                (format nil "~(~A~) ~(~A~)  ~A L~D" (src:outline-entry-kind e) (src:outline-entry-name e)
-                       (path-string node) (src:offset-line-column text (src:node-start node))))))
+                       (located-string node) (src:offset-line-column text (src:node-start node))))))
       (case (first locator)
         (:definition
          (let ((near (near-definitions parsed (third locator)))
@@ -84,7 +84,7 @@ next call can succeed without another read."
                             :message (format nil "Locator ~S matches ~D forms; use one of:~{~%  ~A~}"
                                              (src:locator-error-locator c)
                                              (length (src:ambiguous-locator-candidates c))
-                                             (mapcar #'path-string (src:ambiguous-locator-candidates c)))))))
+                                             (mapcar #'located-string (src:ambiguous-locator-candidates c)))))))
     (src:locate parsed (parse-locator locator))))
 
 (defun project-sources (&key (progress-message "Reading"))

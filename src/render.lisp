@@ -12,6 +12,10 @@
 (defun path-string (node)
   (format nil "path:~{~D~^.~}" (src:node-path node)))
 
+(defun located-string (node)
+  "PATH-STRING of NODE, plus the #+/#- prefix it sits under, if any."
+  (format nil "~A~@[  under ~A~]" (path-string node) (src:feature-prefix node)))
+
 (defun render-diagnostics (parsed name &key (lint '()))
   (with-text (s)
     (let ((diags (append (src:parsed-source-diagnostics parsed) lint))
@@ -36,7 +40,8 @@
 
 (defun render-outline (parsed name &key marks)
   "Outline text. MARKS, when given, has one entry per outline entry: T (the
-image defines it), NIL (it does not) or :UNKNOWN."
+image defines it), NIL (it does not) or :UNKNOWN. A definition in a #+/#-
+branch shows its prefix (#-sbcl), whatever the server's features."
   (with-text (s)
     (format s "~A (hash ~A, ~D forms~:[~;, has reader problems~])~%" name (src:parsed-source-hash parsed)
             (length (src:parsed-source-forms parsed)) (not (src:parsed-source-clean-p parsed)))
@@ -44,13 +49,14 @@ image defines it), NIL (it does not) or :UNKNOWN."
           for i from 0
           for mark = (and marks (nth i marks))
           do (let ((node (src:outline-entry-node e)))
-        (format s "  ~5@A  ~A ~A~@[ ~A~]  [~A]~@[ ~S~]~@[ ~A~]~%"
-                (format nil "L~A" (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node)))
-                (src:outline-entry-kind e) (string-downcase (src:outline-entry-name e))
-                (src:outline-entry-lambda-list e) (path-string node)
-                (let ((doc (src:outline-entry-docstring e)))
-                  (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc))))))
-                (and marks (case mark ((t) "[image: defined]") ((nil) "[image: not loaded]") (t nil))))))))
+               (format s "  ~5@A  ~@[~A ~]~A ~A~@[ ~A~]  [~A]~@[ ~S~]~@[ ~A~]~%"
+                       (format nil "L~A" (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node)))
+                       (src:feature-prefix node)
+                       (src:outline-entry-kind e) (string-downcase (src:outline-entry-name e))
+                       (src:outline-entry-lambda-list e) (path-string node)
+                       (let ((doc (src:outline-entry-docstring e)))
+                         (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc))))))
+                       (and marks (case mark ((t) "[image: defined]") ((nil) "[image: not loaded]") (t nil))))))))
 
 (defun render-node (parsed name node)
   (multiple-value-bind (l1) (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node))

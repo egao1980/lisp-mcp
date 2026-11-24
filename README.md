@@ -4,8 +4,8 @@ A Common Lisp [MCP](https://modelcontextprotocol.io) server with three layers. B
 
 | Layer | Library | What it gives an agent |
 |-------|---------|------------------------|
-| **Source** (read only) | [`lisp-source-protocol`](https://github.com/egao1980/lisp-source-protocol) | Outline, form text and file hash, read-check and lint, paren imbalances with a suggested fix, static definitions, references and packages. Never evaluates (`#.` refused) and never interns. |
-| **Edit** (structural) | same | Replace, insert, delete; wrap, splice, raise, slurp and barf, transpose, move (also across files) and repair through `edit-structure`; rename-symbol, add-export, new-file. Inserted code is re-indented. Each write is re-read first and refused if it would unbalance the file or if `expected_hash` is stale. |
+| **Source** (read only) | [`lisp-source-protocol`](https://github.com/egao1980/lisp-source-protocol) | Outline, form text and file hash, read-check and lint, paren imbalances with a suggested fix, static definitions, references and packages. Never evaluates (`#.` refused) and never interns. Every `#+`/`#-` branch is a form whatever the server's own features: the outline shows its prefix (`#-sbcl defun impl`). |
+| **Edit** (structural) | same | Replace, insert, delete; wrap, splice, raise, slurp and barf, transpose, move (also across files) and repair through `edit-structure`; rename-symbol, add-export, new-file. Inserted code is re-indented; every `#+`/`#-` form in it is written. Each write is re-read first and refused if it would unbalance the file or if `expected_hash` is stale. |
 | **Live image** | [`repl-protocol`](https://github.com/egao1980/repl-protocol) + [Swank](https://github.com/egao1980/repl-backend-swank) / [Slynk](https://github.com/egao1980/repl-backend-slynk) | Eval, compile (notes mapped to file positions), load-system, run-tests, debugger (a value, not a hang) with stepping, inspector, xref, threads, Slynk channels. The image is a separate process, so this server never runs project code. |
 
 ## Run
