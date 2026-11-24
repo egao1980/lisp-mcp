@@ -67,6 +67,59 @@ whatever the server's own features."
                (format nil "(in-package #:cl-user)~%~%#-sbcl (defun impl () :ecl)~%~%#+sbcl (list :plus)~%~%#-sbcl (list :minus)~%")))
     (ok (search "clean (4 top-level forms" (call "source-check" "path" "branches.lisp" "rules" "none")))))
 
+(defparameter *commented-code*
+  ";;; Section comment before the first inserted form.
+
+(defun probe-b ()
+  ;; inner comment
+  2)
+
+;;; Comment between forms.
+
+(defun probe-c () 3)")
+
+(deftest inserted-comments-reach-the-file
+  "lisp-mcp#28 (lisp-source-protocol#11): edit-insert keeps the comments of its code."
+  (with-project (root)
+    (write-project-file root "probe.lisp" (format nil "(defun probe-a () 1)~%"))
+    (let ((dry (call "edit-insert" "path" "probe.lisp" "locator" "defun probe-a"
+                     "code" *commented-code* "dry_run" t "verbose" t)))
+      (ok (search "+;;; Section comment before the first inserted form." dry))
+      (ok (search "+;;; Comment between forms." dry)))
+    (call "edit-insert" "path" "probe.lisp" "locator" "defun probe-a" "code" *commented-code*)
+    (ok (equal (uiop:read-file-string (merge-pathnames "probe.lisp" root))
+               (format nil "(defun probe-a () 1)~%~%~A~%" *commented-code*)))))
+
+(defparameter *labels-file*
+  "(defun outer (ret)
+  (labels ((touch ()
+             (setf ret 2)))
+    (touch)))
+")
+
+(deftest local-definitions-keep-their-layout
+  "lisp-source-protocol#14, #15: a binding inserted first goes on its own line,
+COND clauses and LABELS bodies indent as SLIME does, and a trailing comment
+goes after the closing parens."
+  (with-project (root)
+    (write-project-file root "outer.lisp" *labels-file*)
+    (call "edit-insert" "path" "outer.lisp" "locator" "path:0.3.1.0" "where" "before"
+          "code" (format nil "(route-hop ()~%\"Doc.\"~%(cond~%((plusp ret) :ok)~%(t :error)))"))
+    (call "edit-replace" "path" "outer.lisp" "locator" "path:0.3.1.1"
+          "code" (format nil "(touch ()~%(setf ret 3)) ; now 3"))
+    (ok (equal (uiop:read-file-string (merge-pathnames "outer.lisp" root))
+               "(defun outer (ret)
+  (labels ((route-hop ()
+             \"Doc.\"
+             (cond
+               ((plusp ret) :ok)
+               (t :error)))
+           (touch ()
+             (setf ret 3))) ; now 3
+    (touch)))
+"))
+    (ok (search "clean" (call "source-check" "path" "outer.lisp" "rules" "none")))))
+
 (deftest broken-file-is-reported
   (with-project (root)
     (write-project-file root "broken.lisp" (format nil "(defun a (x)~%  (let ((y 1))~%    (+ x y))~%~%(defun b () 2)~%"))
