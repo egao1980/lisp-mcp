@@ -1040,22 +1040,24 @@ LITERAL: X is not evaluated (defpackage, in-package), so any symbol names one."
 
 (defun %cst-markers (forms scan)
   "Pre-pass over the CST: emit lisp:read-eval for #. and #S. → T when a #n= /
-#n# label is present (its value may be circular)."
-  (src:walk-nodes
-   (lambda (node)
-     (case (src:node-kind node)
-       ((:label-definition :label-reference) (return-from %cst-markers t))
-       (:dispatch
-        (let ((text (src:node-text node)))
-          (when (or (src:read-eval-placeholder-p (src:node-value node))
-                    (src:structure-placeholder-p (src:node-value node))
-                    (and (>= (length text) 2) (char= (char text 0) #\#)
-                         (char-equal (char text 1) #\S)))
-            (%emit scan "lisp:read-eval"))))
-       (t (when (or (src:read-eval-placeholder-p (src:node-value node))
-                    (src:structure-placeholder-p (src:node-value node)))
-            (%emit scan "lisp:read-eval")))))
-   forms)
+#n# label is present (its value may be circular). Branches the features
+exclude are never read by the image, so they are not walked."
+  (labels ((walk (node)
+             (case (src:node-kind node)
+               ((:label-definition :label-reference) (return-from %cst-markers t))
+               (:dispatch
+                (let ((text (src:node-text node)))
+                  (when (or (src:read-eval-placeholder-p (src:node-value node))
+                            (src:structure-placeholder-p (src:node-value node))
+                            (and (>= (length text) 2) (char= (char text 0) #\#)
+                                 (char-equal (char text 1) #\S)))
+                    (%emit scan "lisp:read-eval"))))
+               (t (when (or (src:read-eval-placeholder-p (src:node-value node))
+                            (src:structure-placeholder-p (src:node-value node)))
+                    (%emit scan "lisp:read-eval"))))
+             (unless (src:feature-excluded-p node)
+               (mapc #'walk (src:node-children node)))))
+    (mapc #'walk forms))
   nil)
 
 (defun %scan-toplevel (form env scan)
@@ -1071,7 +1073,8 @@ LITERAL: X is not evaluated (defpackage, in-package), so any symbol names one."
                     (src:read-source code))))
     (if (not (src:parsed-source-clean-p parsed))
         (list "lisp:*")
-        (let ((forms (src:parsed-source-forms parsed))
+        ;; a #+/#- form the features exclude is source, not code the image runs
+        (let ((forms (remove-if #'src:feature-excluded-p (src:parsed-source-forms parsed)))
               (scan (%make-scan (%canonical-package package)))
               (env (%make-env))
               (*scan-depth* 0))

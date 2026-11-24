@@ -35,6 +35,38 @@
       (ok error)
       (ok (search "outside the project root" text)))))
 
+(defparameter *branches*
+  "(in-package #:cl-user)
+
+#+sbcl (defun impl () :sbcl)
+
+#-sbcl (defun impl () :other)
+")
+
+(deftest reader-conditional-branches-survive
+  "lisp-source-protocol#9: every #+/#- branch is outlined, located and written,
+whatever the server's own features."
+  (with-project (root)
+    (write-project-file root "branches.lisp" *branches*)
+    (let ((outline (call "source-outline" "path" "branches.lisp")))
+      (ok (search "#+sbcl defun impl ()  [path:1.1]" outline))
+      (ok (search "#-sbcl defun impl ()  [path:2.1]" outline)))
+    (ok (search "#-sbcl (defun impl () :other)" (call "source-read" "path" "branches.lisp" "locator" "path:2")))
+    (multiple-value-bind (text error) (call "source-read" "path" "branches.lisp" "locator" "defun impl")
+      (ok error "two definitions")
+      (ok (search "path:2.1  under #-sbcl" text)))
+    (let ((dry (call "edit-insert" "path" "branches.lisp" "locator" "path:2"
+                     "code" "#+sbcl (list :plus) #-sbcl (list :minus)" "dry_run" t)))
+      (ok (search "+#+sbcl (list :plus)" dry))
+      (ok (search "+#-sbcl (list :minus)" dry)))
+    (call "edit-insert" "path" "branches.lisp" "locator" "path:2"
+          "code" "#+sbcl (list :plus) #-sbcl (list :minus)")
+    (call "edit-replace" "path" "branches.lisp" "locator" "path:2.1.3" "code" ":ecl")
+    (call "edit-delete" "path" "branches.lisp" "locator" "path:1.1")
+    (ok (equal (uiop:read-file-string (merge-pathnames "branches.lisp" root))
+               (format nil "(in-package #:cl-user)~%~%#-sbcl (defun impl () :ecl)~%~%#+sbcl (list :plus)~%~%#-sbcl (list :minus)~%")))
+    (ok (search "clean (4 top-level forms" (call "source-check" "path" "branches.lisp" "rules" "none")))))
+
 (deftest broken-file-is-reported
   (with-project (root)
     (write-project-file root "broken.lisp" (format nil "(defun a (x)~%  (let ((y 1))~%    (+ x y))~%~%(defun b () 2)~%"))
