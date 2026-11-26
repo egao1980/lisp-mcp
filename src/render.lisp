@@ -10,7 +10,10 @@
     (format nil "~D:~D" line col)))
 
 (defun path-string (node)
-  (format nil "path:~{~D~^.~}" (src:node-path node)))
+  "NODE's locator: path:… for a form, comment:L for a comment block."
+  (if (src:comment-block-p node)
+      (format nil "comment:~D" (src:offset-line-column (src:node-source node) (src:node-start node)))
+      (format nil "path:~{~D~^.~}" (src:node-path node))))
 
 (defun located-string (node)
   "PATH-STRING of NODE, plus the #+/#- prefix it sits under, if any."
@@ -38,25 +41,38 @@
             (when imbalances
               (format s "Use edit-structure op repair to apply a suggested fix; forms marked recovered refuse other edits.~%")))))))
 
+(defun comment-block-title (block)
+  "The first line of comment block BLOCK, cut at 60 characters."
+  (let* ((text (src:node-text block))
+         (line (string-trim " " (subseq text 0 (or (position #\Newline text) (length text))))))
+    (if (> (length line) 60) (format nil "~A…" (subseq line 0 60)) line)))
+
 (defun render-outline (parsed name &key marks)
   "Outline text. MARKS, when given, has one entry per outline entry: T (the
 image defines it), NIL (it does not) or :UNKNOWN. A definition in a #+/#-
-branch shows its prefix (#-sbcl), whatever the server's features."
+branch shows its prefix (#-sbcl), whatever the server's features. Top-level
+comment blocks are listed where they are, with their comment:L locator."
   (with-text (s)
     (format s "~A (hash ~A, ~D forms~:[~;, has reader problems~])~%" name (src:parsed-source-hash parsed)
             (length (src:parsed-source-forms parsed)) (not (src:parsed-source-clean-p parsed)))
-    (loop for e in (src:outline parsed)
-          for i from 0
-          for mark = (and marks (nth i marks))
-          do (let ((node (src:outline-entry-node e)))
-               (format s "  ~5@A  ~@[~A ~]~A ~A~@[ ~A~]  [~A]~@[ ~S~]~@[ ~A~]~%"
-                       (format nil "L~A" (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node)))
-                       (src:feature-prefix node)
-                       (src:outline-entry-kind e) (string-downcase (src:outline-entry-name e))
-                       (src:outline-entry-lambda-list e) (path-string node)
-                       (let ((doc (src:outline-entry-docstring e)))
-                         (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc))))))
-                       (and marks (case mark ((t) "[image: defined]") ((nil) "[image: not loaded]") (t nil))))))))
+    (let* ((text (src:parsed-source-text parsed))
+           (items (stable-sort
+                   (append (loop for e in (src:outline parsed)
+                                 for i from 0
+                                 collect (list (src:outline-entry-node e) e (and marks (nth i marks))))
+                           (mapcar #'list (src:comment-blocks parsed)))
+                   #'< :key (lambda (item) (src:node-start (first item))))))
+      (loop for (node e mark) in items
+            for line = (format nil "L~A" (src:offset-line-column text (src:node-start node)))
+            do (if (null e)
+                   (format s "  ~5@A  comment ~A  [~A]~%" line (comment-block-title node) (path-string node))
+                   (format s "  ~5@A  ~@[~A ~]~A ~A~@[ ~A~]  [~A]~@[ ~S~]~@[ ~A~]~%"
+                           line (src:feature-prefix node)
+                           (src:outline-entry-kind e) (string-downcase (src:outline-entry-name e))
+                           (src:outline-entry-lambda-list e) (path-string node)
+                           (let ((doc (src:outline-entry-docstring e)))
+                             (and doc (subseq doc 0 (min 70 (or (position #\Newline doc) (length doc))))))
+                           (and marks (case mark ((t) "[image: defined]") ((nil) "[image: not loaded]") (t nil)))))))))
 
 (defun render-node (parsed name node)
   (multiple-value-bind (l1) (src:offset-line-column (src:parsed-source-text parsed) (src:node-start node))

@@ -172,9 +172,36 @@ goes after the closing parens."
 (deftest locator-syntax
   (ok (equal (lisp-mcp:parse-locator "path:0.2.1") '(:path 0 2 1)))
   (ok (equal (lisp-mcp:parse-locator "line:12:4") '(:line 12 :column 4)))
+  (ok (equal (lisp-mcp:parse-locator "comment:12") '(:comment 12)))
+  (ok (equal (lisp-mcp:parse-locator "comment:12-14") '(:comment 12 14)))
   (ok (equal (lisp-mcp:parse-locator "defmethod print-object (my-class t)")
              '(:definition "defmethod" "print-object" "(my-class t)")))
   (ok (signals (lisp-mcp:parse-locator "nonsense") 'error)))
+
+(deftest top-level-comments-are-editable
+  (with-project (root)
+    (let ((path (write-project-file root "c.lisp"
+                                    (format nil "(in-package #:cl-user)~%~%;;; Five sections~%~%(defun a () 1)~%~%;;; --- 3. mail~%~%(defun b () 2)~%"))))
+      (let ((outline (call "source-outline" "path" "c.lisp")))
+        (ok (search "comment ;;; Five sections  [comment:3]" outline))
+        (ok (search "[comment:7]" outline)))
+      (ok (search ";;; Five sections" (call "source-read" "path" "c.lisp" "locator" "comment:3")))
+      (multiple-value-bind (text error-p)
+          (call "edit-replace" "path" "c.lisp" "locator" "line:3" "code" ";;; Four sections"
+                "expected_hash" "stale")
+        (ok error-p "the hash guard holds")
+        (ok (search "changed since it was read" text)))
+      (multiple-value-bind (text error-p) (call "edit-replace" "path" "c.lisp" "locator" "comment:3" "code" ";;; Four sections")
+        (ok (not error-p) text))
+      (multiple-value-bind (text error-p) (call "edit-delete" "path" "c.lisp" "locator" "comment:7")
+        (ok (not error-p) text))
+      (multiple-value-bind (text error-p) (call "edit-replace" "path" "c.lisp" "locator" "comment:3" "code" "(x")
+        (ok error-p text))
+      (multiple-value-bind (text error-p) (call "edit-delete" "path" "c.lisp" "locator" "comment:5")
+        (ok error-p)
+        (ok (search "No comment" text)))
+      (ok (equal (alexandria:read-file-into-string path)
+                 (format nil "(in-package #:cl-user)~%~%;;; Four sections~%~%(defun a () 1)~%~%(defun b () 2)~%"))))))
 
 (deftest move-and-reindent
   (with-project (root)
