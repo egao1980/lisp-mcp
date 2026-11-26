@@ -69,6 +69,8 @@ next call can succeed without another read."
         (:path (format nil "The file has ~D top-level form~:P (path:0 to path:~D); source-outline shows their paths."
                        (length (src:parsed-source-forms parsed)) (1- (length (src:parsed-source-forms parsed)))))
         (:line (format nil "The file has ~D line~:P." (src:line-count text)))
+        (:comment (format nil "No comment on its own lines starts line ~D. source-outline lists the top-level comment blocks (comment:N)."
+                          (second locator)))
         (:hash "No top-level form has that hash; the file may have changed. source-outline gives current paths.")
         (t "source-outline lists the file's forms.")))))
 

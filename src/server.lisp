@@ -4,7 +4,7 @@
   '((:source "SOURCE (read only, never evaluates): source-outline, source-read (form + file hash), source-check (reader errors, imbalances with fix, lint), source-find-*.")
     (:source-image " live=true adds the image's answer.")
     (:edit "
-EDIT (structural, never unbalanced; the only way to write .lisp): edit-replace / -insert / -delete; edit-structure op wrap (head) | splice | raise | slurp / barf (direction) | transpose | move (target_locator, target_path) | repair (index); edit-rename-symbol, edit-add-export, edit-new-file. Locator: \"defun foo\", \"defmethod m (c t)\", \"path:0.2.1\" (child indices), \"line:12[:col]\", \"offset:N\", \"hash:H\". Pass expected_hash from source-read (a stale one shows the current form and hash); dry_run shows the diff. Code is re-indented.")
+EDIT (structural, never unbalanced; the only way to write .lisp): edit-replace / -insert / -delete; edit-structure op wrap (head) | splice | raise | slurp / barf (direction) | transpose | move (target_locator, target_path) | repair (index); edit-rename-symbol, edit-add-export, edit-new-file. Locator: \"defun foo\", \"defmethod m (c t)\", \"path:0.2.1\" (child indices), \"line:12[:col]\", \"offset:N\", \"hash:H\", \"comment:N[-M]\". Pass expected_hash from source-read (a stale one shows the form and hash now); dry_run shows the diff. Code is re-indented.")
     (:edit-image " compile=true appends the image's notes.")
     (:repl "
 LIVE (Swank/Slynk image, separate process): repl-spawn or repl-connect, then repl-eval / repl-compile / repl-load-system / repl-run-tests.")
@@ -134,7 +134,14 @@ without the image arguments of a source or edit tool when no image group is on."
         (schema-without schema *image-arguments*)
         schema)))
 
-(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version "0.7.0") tools)
+(defmacro build-version ()
+  "The lisp-mcp system's version when this file is compiled, as a literal."
+  (asdf:component-version (asdf:find-system "lisp-mcp")))
+
+(defparameter *version* (build-version)
+  "lisp-mcp's version, from lisp-mcp.asd at build time; initialize reports it.")
+
+(defun make-lisp-mcp-server (&key (root (uiop:getcwd)) (name "lisp-mcp") (version *version*) tools)
   "MCP server rooted at ROOT with the tools and resources of the groups TOOLS
 selects (see PARSE-TOOL-GROUPS; default all). Binds *STATE* and *SERVER*."
   (setf *state* (make-state :root root :tool-groups tools))

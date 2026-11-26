@@ -70,7 +70,7 @@ Step-by-step sessions (edit → compile → debug → inspect): [cl-stack cookbo
 
 **Breaking change in 0.5.0.** `edit-wrap`, `edit-splice`, `edit-raise`, `edit-slurp`, `edit-barf`, `edit-transpose`, `edit-move` and `edit-repair` are gone: call `edit-structure` with `op` set to `wrap`, `splice`, `raise`, `slurp`, `barf`, `transpose`, `move` or `repair` and the same other arguments.
 
-Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`. Read-only tools carry `readOnlyHint`; tools that write files or run code carry no annotations (the MCP defaults: not read-only, destructive).
+Locators: `defun foo`, `defmethod print-object (my-class t)`, `path:0.2.1`, `line:12[:col]`, `offset:N`, `hash:H`, `comment:12[-14]` (the comment lines starting on line 12, through 14; `line:12` on a top-level comment gives the same block, and `source-outline` lists top-level comment blocks). Read-only tools carry `readOnlyHint`; tools that write files or run code carry no annotations (the MCP defaults: not read-only, destructive).
 
 **Hybrid answers.** `source-outline`, `source-find-definitions` and `source-find-references` take `live: true`: the static answer is kept, and the connected image adds what only it knows (which definitions are loaded, macro-generated definitions, who-calls / who-references through macros), marked `[image]`.
 
