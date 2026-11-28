@@ -1,5 +1,24 @@
 (in-package #:lisp-mcp/tests)
 
+;;; #37: a job-control stop (state T) is reported, not waited on.
+#-windows
+(deftest stopped-process-is-detected
+  (let* ((process-protocol:*process-backend* (or process-protocol:*process-backend*
+                                                 (process-backend-uiop:use-uiop-process-backend)))
+         (p (process-protocol:launch '("sleep" "60"))))
+    (unwind-protect
+        (let ((pid (princ-to-string (process-protocol:pid p))))
+          (ok (not (lisp-mcp::process-stopped-p p)) "a running process is not stopped")
+          (process-protocol:run (list "kill" "-STOP" pid))
+          (sleep 0.3)
+          (ok (lisp-mcp::process-stopped-p p) "SIGSTOP: state T")
+          (ok (search "STOPPED" (lisp-mcp::stopped-image-note p)) "the note says so")
+          (process-protocol:run (list "kill" "-CONT" pid))
+          (sleep 0.3)
+          (ok (not (lisp-mcp::process-stopped-p p)) "SIGCONT: running again"))
+      (process-protocol:kill p :force t)))
+  (ok (not (lisp-mcp::process-stopped-p nil)) "no process (an attached image)"))
+
 (deftest live-image-session
   (with-project (root)
     (write-project-file root "demo.lisp" (format nil "(defun half (x) (/ x 2))~%"))

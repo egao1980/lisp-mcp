@@ -228,7 +228,12 @@ with the same tool and arguments is not started again."
   (with-text (s)
     (write-string (render-job-line job) s)
     (if (job-running-p job)
-        (format s "Still running; job-wait blocks until it is done, job-cancel interrupts it.~%")
+        (let ((process (and (job-connection job)
+                            (ignore-errors (repl:connection-process (job-connection job))))))
+          (if (process-stopped-p process)
+              ;; #37: a stopped image never finishes the job
+              (write-string (stopped-image-note process) s)
+              (format s "Still running; job-wait blocks until it is done, job-cancel interrupts it.~%")))
         (write-string (job-result job) s))))
 
 (define-tool "job-list" (args :description "Background jobs: id, state, seconds, tool, arguments.")
@@ -246,7 +251,10 @@ with the same tool and arguments is not started again."
     (input-schema '("id" "string" nil :required t)
                   '("timeout" "integer" "Default 60, at most 300"))
   (let ((job (find-job (require-arg args "id"))))
-    (await-job job (min *job-wait-limit* (max 1 (arg-int args "timeout" 60))))
+    ;; #37: a job on a stopped image cannot finish: report it at once
+    (unless (and (job-running-p job) (job-connection job)
+                 (process-stopped-p (ignore-errors (repl:connection-process (job-connection job)))))
+      (await-job job (min *job-wait-limit* (max 1 (arg-int args "timeout" 60)))))
     (render-job job)))
 
 (define-tool "job-cancel" (args :description "Interrupt a running job; it then reports the debugger state."

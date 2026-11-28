@@ -20,12 +20,36 @@
 
 (defun timeout (args) (or (arg-int args "timeout") repl:*repl-timeout*))
 
+(defun process-stopped-p (process)
+  "0.7.5 (#37): true when PROCESS (a process-protocol handle, or NIL for an
+attached image) is stopped: `ps` reports state T (a job-control stop or
+SIGSTOP). A stopped image answers nothing, so asking it would only wait.
+Never signals; NIL on Windows or when ps cannot tell."
+  (and process (not (uiop:os-windows-p))
+       (ignore-errors
+         (let ((pid (process-protocol:pid process)))
+           (and pid
+                (multiple-value-bind (code out)
+                    (process-protocol:run (list "ps" "-o" "stat=" "-p" (princ-to-string pid))
+                                          :output :string :timeout 5)
+                  (let ((stat (string-left-trim '(#\Space #\Tab) (or out ""))))
+                    (and (eql code 0) (plusp (length stat)) (char= #\T (char stat 0))))))))))
+
+(defun stopped-image-note (process)
+  "The line repl-list / job-status show for a stopped image PROCESS."
+  (format nil "STOPPED: pid ~A is in state T (a job-control stop): it answers nothing and its jobs cannot finish. repl-disconnect (kill=true) stops it; or send SIGCONT.~%"
+          (ignore-errors (process-protocol:pid process))))
+
 (defun render-connection (name c)
-  (let ((info (repl:repl-connection-info c)))
-    (format nil "~A: ~A ~A, pid ~A, package ~A~:[ (attached)~; (spawned)~]~%" name
-            (repl:connection-info-implementation info) (repl:connection-info-version info)
-            (repl:connection-info-pid info) (repl:connection-info-package info)
-            (repl:connection-process c))))
+  (let ((process (repl:connection-process c)))
+    (if (process-stopped-p process)
+        ;; #37: connection-info is a call into the image: do not wait on it
+        (format nil "~A: ~A" name (stopped-image-note process))
+        (let ((info (repl:repl-connection-info c)))
+          (format nil "~A: ~A ~A, pid ~A, package ~A~:[ (attached)~; (spawned)~]~%" name
+                  (repl:connection-info-implementation info) (repl:connection-info-version info)
+                  (repl:connection-info-pid info) (repl:connection-info-package info)
+                  process)))))
 
 ;;; Lifecycle
 
